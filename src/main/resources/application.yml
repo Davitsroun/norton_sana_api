@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: auth-service
+  config:
+    import: optional:configserver:http://config-server:8888
+  security:
+    oauth2:
+      resource server:
+        jwt:
+          issuer-uri: http://localhost:8080
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+server:
+  port: 8081
+keycloak:
+  server-url: http://localhost:8080
+  realm: my-realm
+  client-id: admin-client
+  client-secret: ${KC_CLIENT_SECRET}

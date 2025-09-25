@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8081:8081"
+  keycloak-db:
+    image: postgres
+    environment:
+      - POSTGRES_DB=${KC_DB_URL_DATABASE}
+      - POSTGRES_USER=${KC_DB_USER}
+      - POSTGRES_PASSWORD=${KC_DB_PASSWORD}
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgDataKeyCloak:/var/lib/postgresql/data
+
+  keycloak:
+    image: keycloak/keycloak:latest
+    command: [ "start-dev" ]
+    depends_on:
+      - keycloak-db
+    environment:
+      # database
+      - KC_DB=postgres
+      - KC_DB_URL_HOST=keycloak-db
+      - KC_DB_URL_DATABASE=${KC_DB_URL_DATABASE}
+      - KC_DB_USERNAME=${KC_DB_USER}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD}
+      # keycloak credential
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      # network and self sign key
+      - KC_HTTP_ENABLED=true
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_LOG_LEVEL=info
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+volumes:
+  pgDataKeyCloak:
