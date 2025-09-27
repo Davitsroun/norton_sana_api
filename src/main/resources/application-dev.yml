@@ -1,24 +1,11 @@
 spring:
-  config:
-    import: optional:configserver:http://34.126.135.232:8888
-  application:
-    name: auth-service
   security:
     oauth2:
       resource-server:
         jwt:
           issuer-uri: http://localhost:8080/realms/rest-api
 eureka:
-  client:
-    service-url:
-      defaultZone: http://34.126.135.232:8761/eureka/
+  instance:
+    prefer-ip-address: true
 keycloak:
   server-url: http://localhost:8080
-  realm: rest-api
-  client-id: oauth-admin-client
-  client-secret: Re1iIXFYOyiZL0JXqQ8Cwe8P4yjt4ttc
-minio:
-  url: http://localhost:9000
-  access-name: admin
-  access-secret: admin123
-  bucket-name: mini-project

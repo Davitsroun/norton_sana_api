@@ -16,18 +16,18 @@ spring:
       max-request-size: 10MB
 eureka:
   client:
-    enabled: false
+    service-url:
+      defaultZone: http://34.126.135.232:8761/eureka/
 
 server:
   port: 8081
   ssl:
     enabled: false
-
 keycloak:
-  server-url: https://auth.kimleang.space/auth
-  realm: my-realm
+  server-url: http://localhost:8080
+  realm: rest-api
   client-id: oauth-admin-client
-  client-secret: vBwPDScyHPg2sWWuuqk5SBKowUqi8zYR
+  client-secret: Re1iIXFYOyiZL0JXqQ8Cwe8P4yjt4ttc
 minio:
   url: http://localhost:9000
   access-name: admin
