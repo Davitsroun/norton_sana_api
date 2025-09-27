@@ -1,21 +1,36 @@
 spring:
+  profiles:
+    active: dev
+  config:
+    import: optional:configserver:http://34.126.135.232:8888
   application:
     name: auth-service
-  config:
-    import: optional:configserver:http://config-server:8888
   security:
     oauth2:
-      resource server:
+      resource-server:
         jwt:
-          issuer-uri: http://localhost:8080
+          issuer-uri: https://auth.kimleang.space/auth/realms/my-realm
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 10MB
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
+    enabled: false
+
 server:
   port: 8081
+  ssl:
+    enabled: false
+
 keycloak:
-  server-url: http://localhost:8080
+  server-url: https://auth.kimleang.space/auth
   realm: my-realm
-  client-id: admin-client
-  client-secret: ${KC_CLIENT_SECRET}
+  client-id: oauth-admin-client
+  client-secret: vBwPDScyHPg2sWWuuqk5SBKowUqi8zYR
+minio:
+  url: http://localhost:9000
+  access-name: admin
+  access-secret: admin123
+  bucket-name: mini-project
+

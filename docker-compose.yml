@@ -3,6 +3,17 @@ services:
     build: .
     ports:
       - "8081:8081"
+  storage:
+    image: minio/minio:latest
+    command: minio server /var/lib/minio/data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=admin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storage:/var/lib/minio/data
   keycloak-db:
     image: postgres
     environment:
@@ -38,3 +49,4 @@ services:
       - "8443:8443"
 volumes:
   pgDataKeyCloak:
+  storage:

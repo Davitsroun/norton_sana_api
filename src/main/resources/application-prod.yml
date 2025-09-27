@@ -1,0 +1,23 @@
+spring:
+  config:
+    import: optional:configserver:http://config-server:8888
+  application:
+    name: auth-service
+  security:
+    oauth2:
+      resource server:
+        jwt:
+          issuer-uri: https://auth.kimleang.space/auth/realms/my-realm
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery-service:8761/eureka/
+server:
+  port: 8081
+  ssl:
+    enabled: false
+keycloak:
+  server-url: https://auth.kimleang.space
+  realm: my-realm
+  client-id: oauth-admin-client
+  client-secret: vBwPDScyHPg2sWWuuqk5SBKowUqi8zYR

@@ -2,10 +2,9 @@ package com.leang.authservice.service.impl;
 
 import com.leang.authservice.exception.BadRequestException;
 import com.leang.authservice.exception.ConflictException;
-import com.leang.authservice.exception.NotFoundException;
 import com.leang.authservice.model.dto.request.AppUserRequest;
-import com.leang.authservice.model.dto.request.AuthRequest;
 import com.leang.authservice.model.dto.request.UpdateAppUserRequest;
+import com.leang.authservice.model.dto.request.UpdatePasswordRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.AppUserResponse;
 import com.leang.authservice.model.dto.response.AuthResponse;
@@ -13,7 +12,6 @@ import com.leang.authservice.service.AppUserService;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
@@ -21,15 +19,10 @@ import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -47,7 +40,7 @@ public class AppUserServiceImpl implements AppUserService {
     private String clientSecret;
     @Value("${keycloak.server-url}")
     private String keycloakUrl;
-    private final WebClient webClient = WebClient.create();
+    private final WebClient webClient;
 
     @Override
     public AppUserResponse createUser(AppUserRequest req) {
@@ -84,98 +77,6 @@ public class AppUserServiceImpl implements AppUserService {
         }
     }
 
-    @Override
-    public ApiResponseWithPagination<AppUserResponse> findAllUsers(String username, String email, Integer page, Integer size) {
-        int offset = (page - 1) * size;
-
-        try {
-            // user is provided
-            if (username != null && !username.isBlank()) {
-                var serverSide = keycloak.realm(realmName).users().search(username, offset, size);
-                //email is provided too
-                if (email != null && !email.isBlank()) {
-                    var allMatches = keycloak.realm(realmName).users().search(username);
-                    var filtered = allMatches.stream()
-                            .filter(u -> email.equalsIgnoreCase(u.getEmail()))
-                            .toList();
-                    var pageSlice = slice(filtered, offset, size);
-                    return buildResponse(pageSlice.stream().map(this::toAppUserResponse).toList(), page, size, filtered.size());
-                } else {
-                    long totalUsers = serverSide.size();
-                    var pageItems = serverSide.stream().map(this::toAppUserResponse).toList();
-                    return buildResponse(pageItems, page, size, (int) totalUsers);
-                }
-            }
-
-            //if only email is provided
-            if (email != null && !email.isBlank()) {
-                var matches = keycloak.realm(realmName).users().searchByEmail(email, true);
-                long total = matches.size();
-                var pageSlice = slice(matches, offset, size);
-                var pageItems = pageSlice.stream().map(this::toAppUserResponse).toList();
-                return buildResponse(pageItems, page, size, (int) total);
-            }
-
-            //no filter apply
-            var usersPage = keycloak.realm(realmName).users().list(offset, size);
-            var totalUsers = usersPage.size();
-            var pageSlice = slice(usersPage, offset, size);
-            var pageItems = pageSlice.stream().map(this::toAppUserResponse).toList();
-            return buildResponse(pageItems, page, size, totalUsers);
-
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to fetch users", ex);
-        }
-    }
-
-    @Override
-    public AppUserResponse getUserById(String userId) {
-        UserRepresentation representation = keycloak.realm(realmName).users().get(userId).toRepresentation();
-        if (representation == null) {
-            throw new NotFoundException("User with id '" + userId + "' not found.");
-        }
-        return toAppUserResponse(representation);
-
-    }
-
-    @SneakyThrows
-    @Override
-    public AuthResponse login(AuthRequest authorizationRequest) {
-        String url = keycloakUrl + "/realms/" + realmName + "/protocol/openid-connect/token";
-
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("grant_type", "password");
-        formData.add("client_id", clientId);
-        formData.add("client_secret", clientSecret);
-        formData.add("username", authorizationRequest.username());
-        formData.add("password", authorizationRequest.password());
-
-        try {
-            Map responseBody = webClient.post()
-                    .uri(url)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(BodyInserters.fromFormData(formData))
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block();
-
-            if (responseBody == null || !responseBody.containsKey("access_token")) {
-                throw new RuntimeException("Login failed: empty or malformed response from Keycloak");
-            }
-
-            return new AuthResponse((String) responseBody.get("access_token"));
-
-        } catch (WebClientResponseException.Unauthorized ex) {
-            System.err.println("Login failed: Invalid username or password.");
-            System.err.println("Error body: " + ex.getResponseBodyAsString());
-            throw new BadRequestException("Invalid username or password.");
-
-        } catch (WebClientResponseException ex) {
-            System.err.println("WebClient error during login: " + ex.getStatusCode() + " " + ex.getStatusText());
-            System.err.println("Error body: " + ex.getResponseBodyAsString());
-            throw new IllegalStateException("Failed to connect to Keycloak server.");
-        }
-    }
 
 
     @Override
@@ -188,13 +89,19 @@ public class AppUserServiceImpl implements AppUserService {
         String firstName = jwt.getClaimAsString("given_name");
         String lastName = jwt.getClaimAsString("family_name");
 
-        return new AppUserResponse(userId, username, email, firstName, lastName);
+        return AppUserResponse.builder()
+                .userId(userId)
+                .username(username)
+                .email(email)
+                .firstName(firstName)
+                .lastName(lastName)
+                .build();
     }
 
     @Override
     public AppUserResponse updateCurrentUserProfile(UpdateAppUserRequest dto) {
         AppUserResponse current = getUserProfile();
-        String userId = current.getId();
+        String userId = current.getUserId();
 
         UsersResource usersResource = keycloak.realm(realmName).users();
         UserResource userResource = usersResource.get(userId);
@@ -205,9 +112,8 @@ public class AppUserServiceImpl implements AppUserService {
         }
 
         String newUsername = safeTrim(dto.username());
-        String newEmail = safeTrim(dto.email());
 
-        if (newUsername != null && !newUsername.isBlank() && !newUsername.equals(user.getUsername())) {
+        if (!newUsername.equals(user.getUsername())) {
             List<UserRepresentation> found = usersResource.search(newUsername);
             boolean conflict = found.stream().anyMatch(u -> !Objects.equals(u.getId(), userId)
                     && newUsername.equalsIgnoreCase(u.getUsername()));
@@ -217,18 +123,8 @@ public class AppUserServiceImpl implements AppUserService {
             user.setUsername(newUsername);
         }
 
-        if (newEmail != null && !newEmail.isBlank() && !Objects.equals(newEmail, user.getEmail())) {
-            List<UserRepresentation> foundByEmail = usersResource.search(newEmail); // search finds by email too
-            boolean conflict = foundByEmail.stream().anyMatch(u -> !Objects.equals(u.getId(), userId)
-                    && newEmail.equalsIgnoreCase(u.getEmail()));
-            if (conflict) {
-                throw new BadRequestException("Email already in use");
-            }
-            user.setEmail(newEmail);
-        }
-
-        if (dto.firstName() != null) user.setFirstName(newUsername);
-        if (dto.lastName() != null) user.setLastName(newEmail);
+        user.setFirstName(dto.firstName());
+        user.setLastName(dto.lastName());
 
         try {
             userResource.update(user);
@@ -237,28 +133,48 @@ public class AppUserServiceImpl implements AppUserService {
             try {
                 body = ex.getResponse().readEntity(String.class);
             } catch (Exception e) {
-                // ignore reading error
+                throw new RuntimeException(e);
             }
-            // convert to meaningful exception for client
             if (ex.getResponse().getStatus() == 409) {
                 throw new BadRequestException("Conflict updating user: " + body);
             } else {
                 throw new BadRequestException("Failed to update user: " + body);
             }
         }
-
         UserRepresentation updated = userResource.toRepresentation();
         return toAppUserResponse(updated);
     }
 
+
     @Override
-    public void deleteCurrentUserProfile() {
-        var usersResource = keycloak.realm(realmName).users();
-        AppUserResponse userProfile = getUserProfile();
-        //validation
-        getUserById(userProfile.getId());
-        usersResource.delete(userProfile.getId());
+    public void updateUserPassword(UpdatePasswordRequest updatePasswordRequest) {
+        AppUserResponse current = getUserProfile();
+        String userId = current.getUserId();
+
+        UsersResource usersResource = keycloak.realm(realmName).users();
+        UserResource userResource = usersResource.get(userId);
+        UserRepresentation user = userResource.toRepresentation();
+
+        if (user == null) {
+            throw new BadRequestException("User not found or invalid token");
+        }
+
+        CredentialRepresentation credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setValue(updatePasswordRequest.getNewPassword().trim());
+        credential.setTemporary(false);
+        try {
+            userResource.resetPassword(credential);
+        } catch (WebApplicationException ex) {
+            String body = "(empty)";
+            try {
+                body = ex.getResponse().readEntity(String.class);
+            } catch (Exception ignored) {
+            }
+            throw new BadRequestException("Failed to update password: " + body);
+        }
     }
+
 
     private static String safeTrim(String s) {
         return s == null ? null : s.trim();
@@ -285,13 +201,13 @@ public class AppUserServiceImpl implements AppUserService {
     }
 
     private AppUserResponse toAppUserResponse(UserRepresentation userRepresentation) {
-        return new AppUserResponse(
-                userRepresentation.getId(),
-                userRepresentation.getUsername(),
-                userRepresentation.getEmail(),
-                userRepresentation.getFirstName(),
-                userRepresentation.getLastName()
-        );
+        return AppUserResponse.builder()
+                .userId(userRepresentation.getId())
+                .username(userRepresentation.getUsername())
+                .email(userRepresentation.getEmail())
+                .firstName(userRepresentation.getFirstName())
+                .lastName(userRepresentation.getLastName())
+                .build();
     }
 
     private void setPasswordIfProvided(String userId, String password) {
@@ -323,6 +239,20 @@ public class AppUserServiceImpl implements AppUserService {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private AuthResponse toAuthResponse(Map<String, Object> responseBody) {
+        return AuthResponse.builder()
+                .token((String) responseBody.get("access_token"))
+                .expiresIn((Integer) responseBody.get("expires_in"))
+                .refreshExpiresIn((Integer) responseBody.get("refresh_expires_in"))
+                .refreshToken((String) responseBody.get("refresh_token"))
+                .tokenType((String) responseBody.get("token_type"))
+                .idToken((String) responseBody.get("id_token"))
+                .notBeforePolicy((Integer) responseBody.get("not-before-policy"))
+                .sessionState((String) responseBody.get("session_state"))
+                .scope((String) responseBody.get("scope"))
+                .build();
     }
 
     private String encode(String s) {

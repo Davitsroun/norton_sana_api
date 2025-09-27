@@ -10,9 +10,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Builder
 public class AppUserResponse {
-    private String id;
+    private String userId;
     private String username;
     private String email;
     private String firstName;
     private String lastName;
+    private String imageUrl;
 }
