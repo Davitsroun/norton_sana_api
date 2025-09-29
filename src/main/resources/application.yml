@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: dev
+    active: prod
   config:
     import: optional:configserver:http://34.126.135.232:8888
   application:
@@ -27,7 +27,7 @@ keycloak:
   server-url: http://localhost:8080
   realm: rest-api
   client-id: oauth-admin-client
-  client-secret: Re1iIXFYOyiZL0JXqQ8Cwe8P4yjt4ttc
+  client-secret: ${KC_CLIENT_SECRET}
 minio:
   url: http://localhost:9000
   access-name: admin

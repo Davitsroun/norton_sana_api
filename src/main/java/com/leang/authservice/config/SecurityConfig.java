@@ -17,18 +17,25 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(withDefaults()).csrf(AbstractHttpConfigurer::disable)
+                .cors(withDefaults())
+                .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/**", "/v3/api-docs/**",
+                        .requestMatchers(
+                                "/api/v1/auth/**",
+                                "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/swagger-ui.html","/api/v1/users/register"
+                                "/swagger-ui.html",
+                                "/api/v1/users/register",
+                                "/api/v1/files/**",
+                                "/error"
                         ).permitAll()
-                        .anyRequest().permitAll()
+                        .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                 );
+
         return http.build();
     }
 
@@ -42,3 +49,4 @@ public class SecurityConfig {
         return jwtConverter;
     }
 }
+

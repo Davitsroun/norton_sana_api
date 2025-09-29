@@ -5,9 +5,7 @@ import com.leang.authservice.exception.ConflictException;
 import com.leang.authservice.model.dto.request.AppUserRequest;
 import com.leang.authservice.model.dto.request.UpdateAppUserRequest;
 import com.leang.authservice.model.dto.request.UpdatePasswordRequest;
-import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.AppUserResponse;
-import com.leang.authservice.model.dto.response.AuthResponse;
 import com.leang.authservice.service.AppUserService;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
@@ -22,11 +20,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -34,13 +32,6 @@ public class AppUserServiceImpl implements AppUserService {
     private final Keycloak keycloak;
     @Value("${keycloak.realm}")
     private String realmName;
-    @Value("${keycloak.client-id}")
-    private String clientId;
-    @Value("${keycloak.client-secret}")
-    private String clientSecret;
-    @Value("${keycloak.server-url}")
-    private String keycloakUrl;
-    private final WebClient webClient;
 
     @Override
     public AppUserResponse createUser(AppUserRequest req) {
@@ -51,6 +42,7 @@ public class AppUserServiceImpl implements AppUserService {
         user.setLastName(req.lastName());
         user.setEnabled(true);
         user.setEmailVerified(true);
+        user.setAttributes(Map.of("imageUrl", List.of(req.imageUrl())));
 
         try (Response response = keycloak.realm(realmName).users().create(user)) {
             int status = response.getStatus();
@@ -125,11 +117,17 @@ public class AppUserServiceImpl implements AppUserService {
 
         user.setFirstName(dto.firstName());
         user.setLastName(dto.lastName());
+        if (dto.imageUrl() != null) {
+            Map<String, List<String>> attributes = user.getAttributes();
+            if (attributes == null) attributes = new HashMap<>();
+            attributes.put("imageUrl", List.of(dto.imageUrl()));
+            user.setAttributes(attributes);
+        }
 
         try {
             userResource.update(user);
         } catch (WebApplicationException ex) {
-            String body = "(empty)";
+            String body;
             try {
                 body = ex.getResponse().readEntity(String.class);
             } catch (Exception e) {
@@ -180,33 +178,22 @@ public class AppUserServiceImpl implements AppUserService {
         return s == null ? null : s.trim();
     }
 
-    private String safeReadResponseBody(WebApplicationException ex) {
-        try {
-            return ex.getResponse().readEntity(String.class);
-        } catch (Exception ignored) {
-            return "(unreadable)";
-        }
-    }
-
-    private ApiResponseWithPagination<AppUserResponse> buildResponse(
-            List<AppUserResponse> items, int page, int size, int total) {
-        // Try to use a constructor you have; adapt the call below to your ApiResponseWithPagination signature.
-        return ApiResponseWithPagination.itemsAndPaginationResponse(items, page, size, total);
-    }
-
-    private <T> List<T> slice(List<T> list, int offset, Integer size) {
-        if (list.isEmpty() || offset >= list.size()) return Collections.emptyList();
-        int toIndex = Math.min(list.size(), offset + size);
-        return list.subList(offset, toIndex);
-    }
 
     private AppUserResponse toAppUserResponse(UserRepresentation userRepresentation) {
+        String imageUrl = null;
+        if (userRepresentation.getAttributes() != null) {
+            List<String> values = userRepresentation.getAttributes().get("imageUrl");
+            if (values != null && !values.isEmpty()) {
+                imageUrl = values.getFirst();
+            }
+        }
         return AppUserResponse.builder()
                 .userId(userRepresentation.getId())
                 .username(userRepresentation.getUsername())
                 .email(userRepresentation.getEmail())
                 .firstName(userRepresentation.getFirstName())
                 .lastName(userRepresentation.getLastName())
+                .imageUrl(imageUrl)
                 .build();
     }
 
@@ -241,21 +228,5 @@ public class AppUserServiceImpl implements AppUserService {
         }
     }
 
-    private AuthResponse toAuthResponse(Map<String, Object> responseBody) {
-        return AuthResponse.builder()
-                .token((String) responseBody.get("access_token"))
-                .expiresIn((Integer) responseBody.get("expires_in"))
-                .refreshExpiresIn((Integer) responseBody.get("refresh_expires_in"))
-                .refreshToken((String) responseBody.get("refresh_token"))
-                .tokenType((String) responseBody.get("token_type"))
-                .idToken((String) responseBody.get("id_token"))
-                .notBeforePolicy((Integer) responseBody.get("not-before-policy"))
-                .sessionState((String) responseBody.get("session_state"))
-                .scope((String) responseBody.get("scope"))
-                .build();
-    }
 
-    private String encode(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
-    }
 }
