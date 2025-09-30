@@ -1,6 +1,4 @@
 spring:
-  profiles:
-    active: prod
   config:
     import: optional:configserver:http://34.126.135.232:8888
   application:
@@ -9,7 +7,7 @@ spring:
     oauth2:
       resource-server:
         jwt:
-          issuer-uri: https://auth.kimleang.space/auth/realms/my-realm
+          issuer-uri: http://localhost:8080/realms/rest-api
   servlet:
     multipart:
       max-file-size: 5MB
@@ -27,7 +25,7 @@ keycloak:
   server-url: http://localhost:8080
   realm: rest-api
   client-id: oauth-admin-client
-  client-secret: ${KC_CLIENT_SECRET}
+  client-secret: dY90Uo2nz8UGAZ1fdGAEloOf8rK16cIo
 minio:
   url: http://localhost:9000
   access-name: admin

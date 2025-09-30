@@ -1,8 +1,8 @@
 services:
-  app:
-    build: .
-    ports:
-      - "8081:8081"
+#  app:
+#    build: .
+#    ports:
+#      - "8081:8081"
   storage:
     image: minio/minio:latest
     command: minio server /var/lib/minio/data --console-address ":9001"
