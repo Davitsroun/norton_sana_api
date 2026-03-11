@@ -1,33 +1,33 @@
 spring:
-  config:
-    import: optional:configserver:http://34.124.146.39:8888
+#  config:
+#    import: optional:configserver:http://34.124.146.39:8888
   application:
     name: auth-service
   security:
     oauth2:
       resource-server:
         jwt:
-          issuer-uri: http://34.124.146.39:8080/realms/rest-api
+          issuer-uri: http://localhost:8080/realms/rest-api
   servlet:
     multipart:
       max-file-size: 5MB
       max-request-size: 10MB
-eureka:
-  client:
-    service-url:
-      defaultZone: http://34.124.146.39:8761/eureka/
+#eureka:
+#  client:
+#    service-url:
+#      defaultZone: http://34.124.146.39:8761/eureka/
 
 server:
   port: 8081
   ssl:
     enabled: false
 keycloak:
-  server-url: http://34.124.146.39:8080
+  server-url: http://localhost:8080
   realm: rest-api
   client-id: oauth-admin-client
-  client-secret: dY90Uo2nz8UGAZ1fdGAEloOf8rK16cIo
+  client-secret: tjE8QGe3KCkhymi3US9kjE7rdhpHS9nj
 minio:
-  url: http://34.124.146.39:9000
+  url: http://localhost:9000
   access-name: admin
   access-secret: admin123
   bucket-name: mini-project

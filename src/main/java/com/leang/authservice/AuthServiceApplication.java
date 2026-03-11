@@ -11,11 +11,11 @@ import io.swagger.v3.oas.annotations.servers.Server;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+//import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 @SpringBootApplication
 @EnableConfigurationProperties({KeycloakProps.class, MinioProps.class})
-@EnableDiscoveryClient
+//@EnableDiscoveryClient
 @OpenAPIDefinition(info = @Info(title = "Admin client",
         version = "v1",
         description = "This is description"),
