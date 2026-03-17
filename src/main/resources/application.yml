@@ -25,10 +25,11 @@ keycloak:
   server-url: http://localhost:8080
   realm: rest-api
   client-id: oauth-admin-client
-  client-secret: tjE8QGe3KCkhymi3US9kjE7rdhpHS9nj
+  client-secret: 59adTLMPCAnew2UnwRcxYKKwbhCqgEsN
 minio:
   url: http://localhost:9000
   access-name: admin
   access-secret: admin123
   bucket-name: mini-project
 
+#jbxs dcqr hpja nguj

@@ -3,18 +3,24 @@ package com.leang.authservice.config;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+
+import java.util.*;
+
+import org.springframework.security.core.GrantedAuthority;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -44,15 +50,35 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_"); // optional
-        grantedAuthoritiesConverter.setAuthoritiesClaimName("realm_access.roles"); // Keycloak roles
+private JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
 
-        JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
-        jwtConverter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
-        return jwtConverter;
-    }
+    converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+        Collection<GrantedAuthority> authorities = new ArrayList<>();
+
+        // Realm roles
+        Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+        if (realmAccess != null && realmAccess.get("roles") instanceof List<?> realmRoles) {
+            realmRoles.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
+        }
+
+        // Client roles
+        Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
+        if (resourceAccess != null) {
+            Map<String, Object> clientRoles = (Map<String, Object>) resourceAccess.get("oauth-admin-client");
+            if (clientRoles != null && clientRoles.get("roles") instanceof List<?> clientRoleList) {
+                clientRoleList.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
+            }
+        }
+
+        // Debug log
+        System.out.println("Authorities mapped from JWT: " + authorities);
+
+        return authorities;
+    });
+
+    return converter;
+}
     @Bean
     public AuthenticationEntryPoint unauthorizedEntryPoint() {
         return (request, response, authException) -> {

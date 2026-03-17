@@ -1,21 +1,28 @@
-# build jar file
-FROM gradle:8.8-jdk21-jammy AS build
+# BUILD STAGE
+FROM gradle:jdk21-ubi-minimal AS build
 
 WORKDIR /app
 
+# Copy only gradle wrapper and config files to cache dependencies
 COPY gradlew .
 COPY gradle gradle
-COPY build.gradle settings.gradle ./
+COPY build.gradle .
+COPY settings.gradle .
 
-COPY src src
+# Pre-download dependencies (without running full build)
+RUN ./gradlew dependencies --no-daemon || true
 
-RUN ./gradlew bootJar --no-daemon
+# Now copy the full source
+COPY . .
 
-# copy jar file
-FROM eclipse-temurin:21.0.7_6-jre-ubi9-minimal AS run
+# Build the application (skip tests if desired)
+RUN ./gradlew clean build -x test --no-daemon
 
-WORKDIR /app
+# RUN STAGE
+FROM eclipse-temurin:21.0.7_6-jre-ubi9-minimal
 
 COPY --from=build /app/build/libs/*.jar /app/app.jar
+
+EXPOSE 8080
 
 CMD ["java", "-jar", "/app/app.jar"]

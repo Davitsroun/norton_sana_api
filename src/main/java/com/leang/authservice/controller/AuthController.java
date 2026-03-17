@@ -7,6 +7,7 @@ import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.service.AppUserService;
 import com.leang.authservice.service.AuthService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,4 +36,5 @@ public class AuthController extends BaseResponse {
     public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody AuthRequest authRequest) {
         return responseEntity(true, "User Login successfully.", HttpStatus.OK, authService.login(authRequest));
     }
+
 }
