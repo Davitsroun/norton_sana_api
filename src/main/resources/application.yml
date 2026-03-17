@@ -1,8 +1,11 @@
 spring:
-#  config:
-#    import: optional:configserver:http://34.124.146.39:8888
   application:
     name: auth-service
+#db
+  datasource:
+    url: jdbc:postgresql://localhost:5434/api_db
+    password: Davit123
+    username: David
   security:
     oauth2:
       resource-server:
@@ -12,24 +15,27 @@ spring:
     multipart:
       max-file-size: 5MB
       max-request-size: 10MB
-#eureka:
-#  client:
-#    service-url:
-#      defaultZone: http://34.124.146.39:8761/eureka/
 
-server:
-  port: 8081
+#jpa
   ssl:
     enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
 keycloak:
   server-url: http://localhost:8080
   realm: rest-api
   client-id: oauth-admin-client
   client-secret: 59adTLMPCAnew2UnwRcxYKKwbhCqgEsN
+#  minio
 minio:
   url: http://localhost:9000
   access-name: admin
   access-secret: admin123
   bucket-name: mini-project
-
+#  server
+server:
+  port: 8081
 #jbxs dcqr hpja nguj
