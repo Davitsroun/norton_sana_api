@@ -1,6 +1,8 @@
 package com.leang.authservice.service.impl;
 
+import com.leang.authservice.enums.Status;
 import com.leang.authservice.exception.NotFoundException;
+import com.leang.authservice.model.dto.request.OrderCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.entity.Order;
 import com.leang.authservice.repository.OrderRepository;
@@ -8,6 +10,8 @@ import com.leang.authservice.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -20,8 +24,18 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
 
     @Override
-    public Order create(Order order) {
-        order.setCreatedAt(Instant.now());
+    public Order create(OrderCreateRequest dto) {
+
+        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        // extract info from token
+        String userId = jwt.getClaimAsString("sub");
+        Order order = Order.builder()
+                .userId(UUID.fromString(userId))
+                .totalPrice(null)
+                .status(dto.getStatus().name())
+                .createdAt(Instant.now())
+                .build();
+
         return orderRepository.save(order);
     }
 
@@ -58,6 +72,14 @@ public class OrderServiceImpl implements OrderService {
                 size,
                 (int) orderPage.getTotalElements()
         );
+    }
+
+    @Override
+    public UUID getUserOrder() {
+        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        // extract info from token
+        String userId = jwt.getClaimAsString("sub");
+        return orderRepository.getOrderIByUserIdAndStatus(UUID.fromString(userId), Status.PENDING.name());
     }
 }
 

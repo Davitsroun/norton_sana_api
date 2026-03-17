@@ -7,9 +7,9 @@ import java.util.UUID;
 
 @Data
 public class OrderItemCreateRequest {
-    private UUID orderId;
+//    private UUID orderId;
     private UUID productId;
     private Integer quantity;
-    private BigDecimal price;
+//    private BigDecimal price;
 }
 

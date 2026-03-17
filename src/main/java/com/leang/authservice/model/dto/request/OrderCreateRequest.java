@@ -1,14 +1,21 @@
 package com.leang.authservice.model.dto.request;
 
+import com.leang.authservice.enums.Status;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
-
-import java.math.BigDecimal;
-import java.util.UUID;
+import lombok.NoArgsConstructor;
 
 @Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class OrderCreateRequest {
-    private UUID userId;
-    private BigDecimal totalPrice;
-    private String status;
+
+    /**
+     * Order status to initialize the order with.
+     * Example: Status.PENDING
+     */
+    private Status status;
 }
 
