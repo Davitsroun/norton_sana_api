@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:.env[.properties],optional:file:auth-service-spring-mini-project-group-03/.env[.properties]
   application:
     name: auth-service
 #db
@@ -10,7 +12,7 @@ spring:
     oauth2:
       resource-server:
         jwt:
-          issuer-uri: http://localhost:8080/realms/rest-api
+          issuer-uri: http://localhost:8081/realms/rest-api
   servlet:
     multipart:
       max-file-size: 5MB
@@ -37,5 +39,12 @@ minio:
   bucket-name: mini-project
 #  server
 server:
-  port: 8081
+  port: 8082
+bakong:
+  account-id: ${BAKONG_ACCOUNT_ID:}
+  base-url: ${BAKONG_BASE_URL:https://api-bakong.nbc.gov.kh}
+  email: ${EMAIL:}
+onesignal:
+  app-id: ${ONESIGNAL_APP_ID:}
+  rest-api-key: ${ONESIGNAL_REST_API_KEY:}
 #jbxs dcqr hpja nguj

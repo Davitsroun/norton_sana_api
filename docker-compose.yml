@@ -45,8 +45,10 @@
         - KC_HOSTNAME_STRICT_HTTPS=false
         - KC_LOG_LEVEL=info
       ports:
-        - "8080:8080"
+        - "8081:8080"
         - "8443:8443"
+      volumes:
+        - ./target/email-otp-authenticator-v1.3.5-kc-26.3.5.jar:/opt/keycloak/providers/email-otp-authenticator.jar
     api_db:
       image: postgres:15
       environment:

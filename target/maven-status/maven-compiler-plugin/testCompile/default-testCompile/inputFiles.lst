@@ -1,0 +1,8 @@
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\EmailOTPFormAuthenticatorFactoryTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\EmailOTPFormAuthenticatorTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\helpers\ConfigHelperTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\helpers\PluralRulesTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\helpers\TrustDurationInfoTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\jpa\TrustedDeviceEntityTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\jpa\TrustedIpEntityTest.java
+C:\keycloak_otp\keycloak_opt\src\test\java\ch\jacem\for_keycloak\email_otp_authenticator\TranslationsTest.java
