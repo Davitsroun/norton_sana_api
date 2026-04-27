@@ -40,6 +40,11 @@ public class Order {
     private BigDecimal totalPrice;
 
     private String status;
+    private String currency;
+    private String paymentMethod;
+    private String fulfillment;
+    private String trackingNumber;
+    private String deliveryAddress;
 
     private Instant createdAt;
 

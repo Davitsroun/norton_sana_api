@@ -31,6 +31,9 @@ keycloak:
   realm: rest-api
   client-id: oauth-admin-client
   client-secret: 59adTLMPCAnew2UnwRcxYKKwbhCqgEsN
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 #  minio
 minio:
   url: http://localhost:9000
