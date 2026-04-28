@@ -2,12 +2,9 @@ package com.leang.authservice.service;
 
 
 import com.leang.authservice.model.dto.request.AppUserRequest;
-import com.leang.authservice.model.dto.request.AuthRequest;
 import com.leang.authservice.model.dto.request.UpdateAppUserRequest;
 import com.leang.authservice.model.dto.request.UpdatePasswordRequest;
-import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.AppUserResponse;
-import com.leang.authservice.model.dto.response.AuthResponse;
 
 public interface AppUserService {
 
