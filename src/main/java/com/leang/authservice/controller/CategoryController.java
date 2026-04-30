@@ -43,8 +43,8 @@ public class CategoryController extends BaseResponse {
     @Operation(summary = "Get all categories")
     @GetMapping
     public ResponseEntity<ApiResponseWithPagination<Category>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         ApiResponseWithPagination<Category> response = categoryService.getAll(page, size);
         return ResponseEntity.status(HttpStatus.OK).body(response);

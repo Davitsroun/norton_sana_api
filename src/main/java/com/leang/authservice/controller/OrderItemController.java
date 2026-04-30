@@ -40,8 +40,8 @@ public class OrderItemController extends BaseResponse {
     @Operation(summary = "Get all order items")
     @GetMapping
     public ResponseEntity<ApiResponseWithPagination<OrderItem>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         ApiResponseWithPagination<OrderItem> response = orderItemService.getAll(page, size);
         return ResponseEntity.status(HttpStatus.OK).body(response);

@@ -54,8 +54,8 @@ public class PaymentController extends BaseResponse {
     @Operation(summary = "Get all payments")
     @GetMapping
     public ResponseEntity<ApiResponseWithPagination<Payment>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         ApiResponseWithPagination<Payment> response = paymentService.getAll(page, size);
         return ResponseEntity.status(HttpStatus.OK).body(response);

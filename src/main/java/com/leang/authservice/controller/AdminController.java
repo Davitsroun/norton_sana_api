@@ -73,8 +73,8 @@ public class AdminController extends BaseResponse {
 
     @GetMapping("/orders")
     public ResponseEntity<ApiResponseWithPagination<OrderViewResponse>> getAllOrders(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         Page<OrderViewResponse> orders = orderRepository.findAll(PageRequest.of(page, size)).map(this::toOrderView);
         ApiResponseWithPagination<OrderViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
@@ -101,8 +101,8 @@ public class AdminController extends BaseResponse {
 
     @GetMapping("/users")
     public ResponseEntity<ApiResponseWithPagination<MeResponse>> getUsers(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         Page<MeResponse> users = userProfileRepository.findAll(PageRequest.of(page, size))
                 .map(user -> new MeResponse(
@@ -126,11 +126,11 @@ public class AdminController extends BaseResponse {
     @GetMapping("/products")
     public ResponseEntity<ApiResponseWithPagination<ProductViewResponse>> getProducts(
 
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) UUID categoryId,
-            @RequestParam(required = false) BigDecimal minPrice,
-            @RequestParam(required = false) BigDecimal maxPrice
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size,
+            @RequestParam(name = "categoryId", required = false) UUID categoryId,
+            @RequestParam(name = "minPrice", required = false) BigDecimal minPrice,
+            @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice
     ) {
         Page<Product> products = productRepository.searchProducts(
                 null,

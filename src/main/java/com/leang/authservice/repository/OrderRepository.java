@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
@@ -15,6 +16,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     UUID getOrderIByUserIdAndStatus(@Param("userId") UUID userId, @Param("status") String status);
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+    List<Order> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<Order> findByOrderIdAndUserId(UUID orderId, UUID userId);
 }

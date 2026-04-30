@@ -2,7 +2,6 @@ package com.leang.authservice.controller;
 
 import com.leang.authservice.model.dto.request.CreateOrderRequest;
 import com.leang.authservice.model.dto.response.ApiResponse;
-import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
@@ -18,8 +17,6 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +26,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
@@ -87,20 +83,13 @@ public class UserOrderController extends BaseResponse {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponseWithPagination<OrderViewResponse>> getMyOrders(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
-    ) {
+    public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrders() {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        Page<OrderViewResponse> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(page, size))
-                .map(this::toView);
-        ApiResponseWithPagination<OrderViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
-                orders.getContent(),
-                page,
-                size,
-                (int) orders.getTotalElements()
-        );
-        return ResponseEntity.status(HttpStatus.OK).body(response);
+        List<OrderViewResponse> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .map(this::toView)
+                .toList();
+        return responseEntity(true, "Orders retrieved successfully.", HttpStatus.OK, orders);
     }
 
     @GetMapping("/{id}")

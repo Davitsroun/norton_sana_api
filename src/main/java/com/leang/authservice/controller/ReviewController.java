@@ -39,9 +39,9 @@ public class ReviewController extends BaseResponse {
     @Operation(summary = "List reviews for a product")
     @GetMapping
     public ResponseEntity<ApiResponseWithPagination<ReviewViewResponse>> listByProduct(
-            @RequestParam UUID productId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(name = "productId") UUID productId,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size
     ) {
         ApiResponseWithPagination<ReviewViewResponse> response = reviewService.listByProduct(productId, page, size);
         return ResponseEntity.status(HttpStatus.OK).body(response);

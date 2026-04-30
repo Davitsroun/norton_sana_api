@@ -40,11 +40,11 @@ public class CatalogController extends BaseResponse {
 
     @GetMapping("/products")
     public ResponseEntity<ApiResponseWithPagination<ProductViewResponse>> getProducts(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) UUID categoryId,
-            @RequestParam(required = false) BigDecimal minPrice,
-            @RequestParam(required = false) BigDecimal maxPrice
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size,
+            @RequestParam(name = "categoryId", required = false) UUID categoryId,
+            @RequestParam(name = "minPrice", required = false) BigDecimal minPrice,
+            @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice
     ) {
         Page<Product> products = productRepository.searchProducts(
                 null,
@@ -65,7 +65,7 @@ public class CatalogController extends BaseResponse {
     }
 
     @GetMapping("/products/{id}")
-    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductById(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductById(@PathVariable("id") UUID id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Product not found"));
         List<ProductViewResponse> relateProduct = Collections.emptyList();
