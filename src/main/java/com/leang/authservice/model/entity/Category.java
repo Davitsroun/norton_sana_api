@@ -28,7 +28,7 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID categoryId;
 
-    private String categoryName;
+    private String  categoryName;
 
     @OneToMany(mappedBy = "category")
     @JsonIgnore

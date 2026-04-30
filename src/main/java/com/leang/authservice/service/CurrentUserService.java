@@ -59,4 +59,23 @@ public class CurrentUserService {
                                 .build()
                 ));
     }
+
+    /**
+     * Prefer app-stored avatar; then OIDC/JWT picture; then optional imageUrl claim (e.g. Keycloak mapper).
+     */
+    public String resolveProfileImageUrl(UserProfile profile) {
+        if (profile.getAvatarUrl() != null && !profile.getAvatarUrl().isBlank()) {
+            return profile.getAvatarUrl().trim();
+        }
+        Jwt jwt = jwt();
+        String picture = jwt.getClaimAsString("picture");
+        if (picture != null && !picture.isBlank()) {
+            return picture.trim();
+        }
+        String imageUrl = jwt.getClaimAsString("imageUrl");
+        if (imageUrl != null && !imageUrl.isBlank()) {
+            return imageUrl.trim();
+        }
+        return null;
+    }
 }

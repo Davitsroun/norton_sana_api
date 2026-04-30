@@ -57,7 +57,7 @@
         - POSTGRES_PASSWORD=Davit123
       ports:
         - "5434:5432"
-      volumes:
+      volumes:  
         - api_db:/var/postgresql/data
   volumes:
     pgDataKeyCloak:

@@ -1,6 +1,9 @@
 package com.leang.authservice.controller;
 
 import com.leang.authservice.model.dto.request.CreateOrderRequest;
+import com.leang.authservice.model.dto.response.ApiResponse;
+import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
+import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
 import com.leang.authservice.model.entity.Order;
@@ -10,10 +13,15 @@ import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
 import com.leang.authservice.repository.ProductRepository;
 import com.leang.authservice.service.CurrentUserService;
+
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,7 +40,9 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/orders")
 @RequiredArgsConstructor
-public class UserOrderController {
+@Tag(name = "UserOrder")
+@SecurityRequirement(name = "bearerAuth")
+public class UserOrderController extends BaseResponse {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -41,7 +51,7 @@ public class UserOrderController {
 
     @PostMapping
     @Transactional
-    public OrderViewResponse createOrder(
+    public ResponseEntity<ApiResponse<OrderViewResponse>> createOrder(
             @Valid @RequestBody CreateOrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
     ) {
@@ -73,25 +83,32 @@ public class UserOrderController {
 
         savedOrder.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(savedOrder.getOrderId()));
         orderRepository.save(savedOrder);
-        return toView(savedOrder);
+        return responseEntity(true, "Order created successfully.", HttpStatus.CREATED, toView(savedOrder));
     }
 
     @GetMapping
-    public Page<OrderViewResponse> getMyOrders(
+    public ResponseEntity<ApiResponseWithPagination<OrderViewResponse>> getMyOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        return orderRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(page, size))
+        Page<OrderViewResponse> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(page, size))
                 .map(this::toView);
+        ApiResponseWithPagination<OrderViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
+                orders.getContent(),
+                page,
+                size,
+                (int) orders.getTotalElements()
+        );
+        return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
     @GetMapping("/{id}")
-    public OrderViewResponse getMyOrderById(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<OrderViewResponse>> getMyOrderById(@PathVariable UUID id) {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
         Order order = orderRepository.findByOrderIdAndUserId(id, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
-        return toView(order);
+        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, toView(order));
     }
 
     private OrderViewResponse toView(Order order) {

@@ -36,6 +36,12 @@ public class Review {
 
     private Integer rating;
 
+    @Column(length = 255)
+    private String userName;
+
+    @Column(length = 2000)
+    private String userImageUrl;
+
     @Column(length = 2000)
     private String comment;
 

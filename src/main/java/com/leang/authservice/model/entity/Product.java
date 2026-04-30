@@ -44,6 +44,9 @@ public class Product {
     private Integer stockQuantity;
 
     private String imageUrl;
+    private String imageUrl2;
+    private String imageUrl3;
+    private String imageUrl4;
 
     private Instant createdAt;
 

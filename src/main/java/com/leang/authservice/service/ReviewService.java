@@ -1,20 +1,27 @@
 package com.leang.authservice.service;
 
+import com.leang.authservice.model.dto.request.ReviewCreateRequest;
+import com.leang.authservice.model.dto.request.ReviewUpdateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
-import com.leang.authservice.model.entity.Review;
+import com.leang.authservice.model.dto.response.ReviewViewResponse;
 
+import java.util.List;
 import java.util.UUID;
 
-public interface ReviewService {
+public interface    ReviewService {
 
-    Review create(Review review);
+    ReviewViewResponse createReview(UUID userId, ReviewCreateRequest request);
 
-    Review update(UUID id, Review review);
+    ReviewViewResponse updateReview(UUID userId, UUID reviewId, ReviewUpdateRequest request);
 
-    void delete(UUID id);
+    void deleteReview(UUID userId, UUID reviewId);
 
-    Review getById(UUID id);
+    ReviewViewResponse getReviewViewById(UUID id);
 
-    ApiResponseWithPagination<Review> getAll(int page, int size);
+    ApiResponseWithPagination<ReviewViewResponse> listByProduct(UUID productId, int page, int size);
+
+    /**
+     * Newest reviews for a product (for product detail embed). Does not re-check product existence.
+     */
+    List<ReviewViewResponse> listRecentReviewsForProduct(UUID productId, int limit);
 }
-

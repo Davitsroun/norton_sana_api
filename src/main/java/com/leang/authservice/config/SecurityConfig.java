@@ -13,6 +13,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.http.HttpMethod;
 
 import java.util.*;
 
@@ -45,7 +46,8 @@ public class SecurityConfig {
                                 "/api/v1/bakong/**",
                                 "/api/v1/notifications/**"
                         ).permitAll()
-                        .requestMatchers("/api/v1/admin/**").hasRole("admin")
+                        // .requestMatchers(HttpMethod.GET, "/api/v1/reviews", "/api/v1/reviews/*").permitAll()
+                         .requestMatchers("/api/v1/admin/**").hasRole("admin")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

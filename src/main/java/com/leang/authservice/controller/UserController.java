@@ -15,10 +15,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-@Tag(name = "User")
 @RestController
 @RequestMapping("/api/v1/profiles")
 @RequiredArgsConstructor
+@Tag(name = "OrderItem")
+@SecurityRequirement(name = "bearerAuth")
 public class UserController extends BaseResponse {
     private final AppUserService appUserService;
 
