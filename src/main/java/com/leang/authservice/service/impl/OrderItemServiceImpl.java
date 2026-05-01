@@ -2,6 +2,7 @@ package com.leang.authservice.service.impl;
 
 import com.leang.authservice.enums.Status;
 import com.leang.authservice.exception.BadRequestException;
+import com.leang.authservice.exception.ForbiddenException;
 import com.leang.authservice.exception.NotFoundException;
 import com.leang.authservice.model.dto.request.OrderCreateRequest;
 import com.leang.authservice.model.dto.request.OrderItemCreateRequest;
@@ -11,6 +12,7 @@ import com.leang.authservice.model.entity.OrderItem;
 import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
+import com.leang.authservice.service.CurrentUserService;
 import com.leang.authservice.service.OrderItemService;
 import com.leang.authservice.service.OrderService;
 import com.leang.authservice.service.ProductService;
@@ -18,20 +20,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class OrderItemServiceImpl implements OrderItemService {
-
 
     private final OrderItemRepository orderItemRepository;
     private final OrderService orderService;
     private final OrderRepository orderRepository;
     private final ProductService productService;
-
+    private final CurrentUserService currentUserService;
 
     @Override
     public OrderItem create(OrderItemCreateRequest dto) {
@@ -73,8 +76,7 @@ public class OrderItemServiceImpl implements OrderItemService {
 
     @Override
     public OrderItem update(UUID id, OrderItem orderItem) {
-        OrderItem existing = orderItemRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Order item not found"));
+        OrderItem existing = requireOwnedOrderItem(id);
 
         Product product = productService.getById(existing.getProduct().getProductId());
 
@@ -103,8 +105,7 @@ public class OrderItemServiceImpl implements OrderItemService {
 
     @Override
     public void delete(UUID id) {
-        OrderItem existing = orderItemRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Order item not found"));
+        OrderItem existing = requireOwnedOrderItem(id);
 
         Product product = productService.getById(existing.getProduct().getProductId());
         product.setStockQuantity(product.getStockQuantity() + existing.getQuantity());
@@ -123,8 +124,7 @@ public class OrderItemServiceImpl implements OrderItemService {
 
     @Override
     public OrderItem getById(UUID id) {
-        return orderItemRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Order item not found"));
+        return requireOwnedOrderItem(id);
     }
 
     @Override
@@ -137,6 +137,12 @@ public class OrderItemServiceImpl implements OrderItemService {
                 size,
                 (int) orderItemPage.getTotalElements()
         );
+    }
+
+    private OrderItem requireOwnedOrderItem(UUID orderItemId) {
+        UUID userId = UUID.fromString(currentUserService.keycloakSub());
+        return orderItemRepository.findByOrderItemIdAndOrder_UserId(orderItemId, userId)
+                .orElseThrow(() -> new ForbiddenException("You can only access order items from your own cart."));
     }
 }
 
