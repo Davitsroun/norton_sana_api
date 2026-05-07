@@ -5,10 +5,13 @@ import com.leang.authservice.exception.ForbiddenException;
 import com.leang.authservice.exception.NotFoundException;
 import com.leang.authservice.model.dto.request.FavoriteBrandCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
+import com.leang.authservice.model.dto.response.FavoriteBrandResponse;
 import com.leang.authservice.model.entity.Brand;
 import com.leang.authservice.model.entity.FavoriteBrand;
+import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.BrandRepository;
 import com.leang.authservice.repository.FavoriteBrandRepository;
+import com.leang.authservice.repository.ProductRepository;
 import com.leang.authservice.service.FavoriteBrandService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -25,6 +28,7 @@ public class FavoriteBrandServiceImpl implements FavoriteBrandService {
 
     private final FavoriteBrandRepository favoriteBrandRepository;
     private final BrandRepository brandRepository;
+    private final ProductRepository productRepository;
 
     private UUID currentUserId() {
         Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -32,7 +36,7 @@ public class FavoriteBrandServiceImpl implements FavoriteBrandService {
     }
 
     @Override
-    public FavoriteBrand create(FavoriteBrandCreateRequest dto) {
+    public FavoriteBrandResponse create(FavoriteBrandCreateRequest dto) {
         UUID userId = currentUserId();
 
         if (dto.getBrandId() == null) {
@@ -51,11 +55,11 @@ public class FavoriteBrandServiceImpl implements FavoriteBrandService {
                 .brand(brand)
                 .build();
 
-        return favoriteBrandRepository.save(favoriteBrand);
+        return toResponse(favoriteBrandRepository.save(favoriteBrand));
     }
 
     @Override
-    public FavoriteBrand getById(UUID id) {
+    public FavoriteBrandResponse getById(UUID id) {
         FavoriteBrand favoriteBrand = favoriteBrandRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Favorite brand not found"));
 
@@ -63,19 +67,20 @@ public class FavoriteBrandServiceImpl implements FavoriteBrandService {
             throw new ForbiddenException("You do not have permission to access this resource");
         }
 
-        return favoriteBrand;
+        return toResponse(favoriteBrand);
     }
 
     @Override
-    public ApiResponseWithPagination<FavoriteBrand> getAll(int page, int size) {
+    public ApiResponseWithPagination<FavoriteBrandResponse> getAll(int page, int size) {
         UUID userId = currentUserId();
         PageRequest pageable = PageRequest.of(page, size);
         Page<FavoriteBrand> favoriteBrandPage = favoriteBrandRepository.findByUserId(userId, pageable);
+        Page<FavoriteBrandResponse> mapped = favoriteBrandPage.map(this::toResponse);
         return ApiResponseWithPagination.itemsAndPaginationResponse(
-                favoriteBrandPage.getContent(),
+                mapped.getContent(),
                 page,
                 size,
-                (int) favoriteBrandPage.getTotalElements()
+                (int) mapped.getTotalElements()
         );
     }
 
@@ -89,6 +94,20 @@ public class FavoriteBrandServiceImpl implements FavoriteBrandService {
         }
 
         favoriteBrandRepository.delete(favoriteBrand);
+    }
+
+    private FavoriteBrandResponse toResponse(FavoriteBrand favoriteBrand) {
+        Product product = productRepository.findTopByBrand_BrandIdOrderByCreatedAtDesc(favoriteBrand.getBrand().getBrandId())
+                .orElse(null);
+        return new FavoriteBrandResponse(
+                favoriteBrand.getFavoriteBrandId(),
+                favoriteBrand.getBrand().getBrandId(),
+                favoriteBrand.getBrand().getBrandName(),
+                favoriteBrand.getBrand().getCountry(),
+                product == null ? null : product.getProductId(),
+                product == null ? null : product.getName(),
+                product == null ? null : product.getImageUrl()
+        );
     }
 }
 

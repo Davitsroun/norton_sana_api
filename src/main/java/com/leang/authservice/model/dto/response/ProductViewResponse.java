@@ -1,11 +1,11 @@
 package com.leang.authservice.model.dto.response;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 public record ProductViewResponse(
         UUID id,
+        UUID brandId,
         String name,
         BigDecimal price,
         BigDecimal originalPrice,

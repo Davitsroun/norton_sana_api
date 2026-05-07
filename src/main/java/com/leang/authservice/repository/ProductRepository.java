@@ -9,11 +9,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     List<Product> findTop5ByCategoryCategoryIdAndProductIdNotOrderByCreatedAtDesc(UUID categoryId, UUID productId);
+    Optional<Product> findTopByBrand_BrandIdOrderByCreatedAtDesc(UUID brandId);
 
     @Query("""
             SELECT p FROM Product p

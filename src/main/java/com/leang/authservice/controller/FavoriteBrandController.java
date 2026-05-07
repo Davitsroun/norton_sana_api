@@ -4,7 +4,7 @@ import com.leang.authservice.model.dto.request.FavoriteBrandCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.BaseResponse;
-import com.leang.authservice.model.entity.FavoriteBrand;
+import com.leang.authservice.model.dto.response.FavoriteBrandResponse;
 import com.leang.authservice.service.FavoriteBrandService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -34,23 +34,23 @@ public class FavoriteBrandController extends BaseResponse {
 
     @Operation(summary = "Create favorite brand")
     @PostMapping
-    public ResponseEntity<ApiResponse<FavoriteBrand>> create(@RequestBody FavoriteBrandCreateRequest dto) {
+    public ResponseEntity<ApiResponse<FavoriteBrandResponse>> create(@RequestBody FavoriteBrandCreateRequest dto) {
         return responseEntity(true, "Favorite brand created successfully.", HttpStatus.CREATED, favoriteBrandService.create(dto));
     }
 
     @Operation(summary = "Get favorite brand by id")
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<FavoriteBrand>> getById(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<FavoriteBrandResponse>> getById(@PathVariable UUID id) {
         return responseEntity(true, "Favorite brand retrieved successfully.", HttpStatus.OK, favoriteBrandService.getById(id));
     }
 
     @Operation(summary = "Get all favorite brands (current user)")
     @GetMapping
-    public ResponseEntity<ApiResponseWithPagination<FavoriteBrand>> getAll(
+    public ResponseEntity<ApiResponseWithPagination<FavoriteBrandResponse>> getAll(
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "10") int size
     ) {
-        ApiResponseWithPagination<FavoriteBrand> response = favoriteBrandService.getAll(page, size);
+        ApiResponseWithPagination<FavoriteBrandResponse> response = favoriteBrandService.getAll(page, size);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 

@@ -104,6 +104,7 @@ public class CatalogController extends BaseResponse {
         int reviewCount = product.getReviews() == null ? 0 : product.getReviews().size();
         return new ProductViewResponse(
                 product.getProductId(),
+                product.getBrand() == null ? null : product.getBrand().getBrandId(),
                 product.getName(),
                 product.getPrice(),
                 null,
