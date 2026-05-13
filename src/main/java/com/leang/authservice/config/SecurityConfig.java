@@ -44,7 +44,8 @@ public class SecurityConfig {
                                 "/api/v1/files/**",
                                 "/error",
                                 "/api/v1/bakong/**",
-                                "/api/v1/notifications/**"
+                                "/api/v1/notifications/sendMessageToAllUsers",
+                                "/api/v1/notifications/sendMessageToUser/**"
                         ).permitAll()
                         // .requestMatchers(HttpMethod.GET, "/api/v1/reviews", "/api/v1/reviews/*").permitAll()
                          .requestMatchers("/api/v1/admin/**").hasRole("admin")

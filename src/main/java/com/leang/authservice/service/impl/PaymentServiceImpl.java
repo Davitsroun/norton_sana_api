@@ -5,10 +5,12 @@ import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.entity.Payment;
 import com.leang.authservice.repository.PaymentRepository;
 import com.leang.authservice.service.PaymentService;
+import com.leang.authservice.service.PaymentSuccessSynchronizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -17,13 +19,18 @@ import java.util.UUID;
 public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
+    private final PaymentSuccessSynchronizer paymentSuccessSynchronizer;
 
     @Override
+    @Transactional
     public Payment create(Payment payment) {
-        return paymentRepository.save(payment);
+        Payment saved = paymentRepository.save(payment);
+        paymentSuccessSynchronizer.syncAfterPaymentPersisted(saved);
+        return saved;
     }
 
     @Override
+    @Transactional
     public Payment update(UUID id, Payment payment) {
         Payment existing = paymentRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Payment not found"));
@@ -32,7 +39,9 @@ public class PaymentServiceImpl implements PaymentService {
         existing.setPaymentStatus(payment.getPaymentStatus());
         existing.setTransactionId(payment.getTransactionId());
         existing.setPaidAt(payment.getPaidAt());
-        return paymentRepository.save(existing);
+        Payment saved = paymentRepository.save(existing);
+        paymentSuccessSynchronizer.syncAfterPaymentPersisted(saved);
+        return saved;
     }
 
     @Override

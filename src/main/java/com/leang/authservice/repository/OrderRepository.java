@@ -19,5 +19,23 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<Order> findByOrderIdAndUserId(UUID orderId, UUID userId);
+
+    /** Unpaid / in-progress orders (cart + checkout before payment). */
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.userId = :userId
+            AND LOWER(TRIM(o.status)) IN ('pending', 'processing')
+            ORDER BY o.createdAt DESC
+            """)
+    List<Order> findActiveOrdersForUser(@Param("userId") UUID userId);
+
+    /** Paid or completed orders for purchase history. */
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.userId = :userId
+            AND LOWER(TRIM(o.status)) IN ('paid', 'completed')
+            ORDER BY o.createdAt DESC
+            """)
+    List<Order> findOrderHistoryForUser(@Param("userId") UUID userId);
 }
 

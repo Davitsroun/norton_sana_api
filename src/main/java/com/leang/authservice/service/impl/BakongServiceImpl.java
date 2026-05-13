@@ -11,12 +11,9 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
 import com.leang.authservice.model.dto.request.BakongRequest;
 import com.leang.authservice.model.dto.request.CheckTransactionRequest;
 import com.leang.authservice.model.dto.response.BakongResponse;
-import com.leang.authservice.model.entity.Order;
-import com.leang.authservice.model.entity.Payment;
-import com.leang.authservice.repository.OrderRepository;
-import com.leang.authservice.repository.PaymentRepository;
 import com.leang.authservice.service.BakongService;
 import com.leang.authservice.service.BakongTokenService;
+import com.leang.authservice.service.PaymentSuccessSynchronizer;
 import kh.gov.nbc.bakong_khqr.BakongKHQR;
 import kh.gov.nbc.bakong_khqr.model.KHQRData;
 import kh.gov.nbc.bakong_khqr.model.KHQRResponse;
@@ -31,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.io.ByteArrayOutputStream;
-import java.time.Instant;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -49,8 +45,7 @@ public class BakongServiceImpl implements BakongService {
     private final RestClient restClient = RestClient.create();
     private final ObjectMapper mapper;
     private final BakongTokenService bakongTokenService;
-    private final OrderRepository orderRepository;
-    private final PaymentRepository paymentRepository;
+    private final PaymentSuccessSynchronizer paymentSuccessSynchronizer;
 
     @Override
     public KHQRResponse<KHQRData> generateQR(BakongRequest bakongRequest) {
@@ -122,28 +117,11 @@ public class BakongServiceImpl implements BakongService {
         try {
             BakongResponse response = mapper.readValue(responseBody, BakongResponse.class);
             if (response.isSuccess() && request.orderId() != null) {
-                updateOrderStatusAsPaid(request.orderId(), request.md5());
+                paymentSuccessSynchronizer.markOrderPaidFromGateway(request.orderId(), request.md5(), "BAKONG");
             }
             return response;
         } catch (Exception e) {
             throw new RuntimeException("Invalid upstream response", e);
         }
-    }
-
-    private void updateOrderStatusAsPaid(java.util.UUID orderId, String md5) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found for payment update"));
-        order.setStatus("COMPLETED");
-        orderRepository.save(order);
-
-        Payment payment = paymentRepository.findByOrder_OrderId(orderId)
-                .orElseGet(() -> Payment.builder()
-                        .order(order)
-                        .paymentMethod("BAKONG")
-                        .build());
-        payment.setPaymentStatus("PAID");
-        payment.setTransactionId(md5);
-        payment.setPaidAt(Instant.now());
-        paymentRepository.save(payment);
     }
 }

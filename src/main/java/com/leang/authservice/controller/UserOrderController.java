@@ -83,16 +83,29 @@ public class UserOrderController extends BaseResponse {
     }
 
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrders() {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        List<OrderViewResponse> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
+        List<OrderViewResponse> orders = orderRepository.findActiveOrdersForUser(userId)
                 .stream()
                 .map(this::toView)
                 .toList();
-        return responseEntity(true, "Orders retrieved successfully.", HttpStatus.OK, orders);
+        return responseEntity(true, "Active orders retrieved successfully.", HttpStatus.OK, orders);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/history")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrderHistory() {
+        UUID userId = UUID.fromString(currentUserService.keycloakSub());
+        List<OrderViewResponse> orders = orderRepository.findOrderHistoryForUser(userId)
+                .stream()
+                .map(this::toView)
+                .toList();
+        return responseEntity(true, "Order history retrieved successfully.", HttpStatus.OK, orders);
+    }
+
+    @GetMapping("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<OrderViewResponse>> getMyOrderById(@PathVariable UUID id) {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
         Order order = orderRepository.findByOrderIdAndUserId(id, userId)
