@@ -2,14 +2,16 @@ package com.leang.authservice.controller;
 
 import com.leang.authservice.model.dto.request.AdminUpdateOrderStatusRequest;
 import com.leang.authservice.model.dto.request.ProductRequest;
+import com.leang.authservice.model.dto.response.AdminOrderListItemResponse;
 import com.leang.authservice.model.dto.response.AdminStatisticsResponse;
+import com.leang.authservice.model.dto.response.AdminUserListItemResponse;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.BaseResponse;
-import com.leang.authservice.model.dto.response.MeResponse;
 import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
 import com.leang.authservice.model.dto.response.ProductViewResponse;
+import com.leang.authservice.service.AdminOrderMapper;
 import com.leang.authservice.model.entity.Brand;
 import com.leang.authservice.model.entity.Category;
 import com.leang.authservice.model.entity.Order;
@@ -28,6 +30,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,28 +59,46 @@ public class AdminController extends BaseResponse {
     private final UserProfileRepository userProfileRepository;
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
+    private final AdminOrderMapper adminOrderMapper;
 
     public AdminController(
             OrderRepository orderRepository,
             ProductRepository productRepository,
             UserProfileRepository userProfileRepository,
             CategoryRepository categoryRepository,
-            BrandRepository brandRepository
+            BrandRepository brandRepository,
+            AdminOrderMapper adminOrderMapper
     ) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.userProfileRepository = userProfileRepository;
         this.categoryRepository = categoryRepository;
         this.brandRepository = brandRepository;
+        this.adminOrderMapper = adminOrderMapper;
+    }
+
+    @GetMapping("/orders/recent")
+    public ResponseEntity<ApiResponse<List<AdminOrderListItemResponse>>> getRecentOrders(
+            @RequestParam(name = "limit", defaultValue = "10") int limit
+    ) {
+        int size = Math.min(Math.max(limit, 1), 50);
+        List<AdminOrderListItemResponse> recent = orderRepository
+                .findAll(PageRequest.of(0, size, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .map(adminOrderMapper::toAdminListItem)
+                .getContent();
+        return responseEntity(true, "Recent orders retrieved successfully.", HttpStatus.OK, recent);
     }
 
     @GetMapping("/orders")
-    public ResponseEntity<ApiResponseWithPagination<OrderViewResponse>> getAllOrders(
+    public ResponseEntity<ApiResponseWithPagination<AdminOrderListItemResponse>> getAllOrders(
             @RequestParam(name = "page", defaultValue = "0") int page,
-            @RequestParam(name = "size", defaultValue = "10") int size
+            @RequestParam(name = "size", defaultValue = "10") int size,
+            @RequestParam(name = "status", required = false) String status
     ) {
-        Page<OrderViewResponse> orders = orderRepository.findAll(PageRequest.of(page, size)).map(this::toOrderView);
-        ApiResponseWithPagination<OrderViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
+        Page<AdminOrderListItemResponse> orders = orderRepository
+                .findAdminOrders(status, PageRequest.of(page, size))
+                .map(adminOrderMapper::toAdminListItem);
+        ApiResponseWithPagination<AdminOrderListItemResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
                 orders.getContent(),
                 page,
                 size,
@@ -100,22 +121,30 @@ public class AdminController extends BaseResponse {
     }
 
     @GetMapping("/users")
-    public ResponseEntity<ApiResponseWithPagination<MeResponse>> getUsers(
+    public ResponseEntity<ApiResponseWithPagination<AdminUserListItemResponse>> getUsers(
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "10") int size
     ) {
-        Page<MeResponse> users = userProfileRepository.findAll(PageRequest.of(page, size))
-                .map(user -> new MeResponse(
-                        user.getKeycloakId(),
-                        user.getEmail(),
-                        user.getFirstName(),
-                        user.getLastName(),
-                        user.getUsername(),
-                        user.getAvatarUrl(),
-                        List.of("user"),
-                        false
-                ));
-        ApiResponseWithPagination<MeResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
+        Page<AdminUserListItemResponse> users = userProfileRepository.findAll(PageRequest.of(page, size))
+                .map(user -> {
+                    UUID keycloakUuid = UUID.fromString(user.getKeycloakId());
+                    long orderCount = orderRepository.countByUserId(keycloakUuid);
+                    String name = joinName(user.getFirstName(), user.getLastName());
+                    if (name.isBlank()) {
+                        name = user.getUsername();
+                    }
+                    return new AdminUserListItemResponse(
+                            user.getKeycloakId(),
+                            name,
+                            user.getEmail(),
+                            user.getCreatedAt(),
+                            orderCount,
+                            "ACTIVE",
+                            "CUSTOMER",
+                            user.getAvatarUrl()
+                    );
+                });
+        ApiResponseWithPagination<AdminUserListItemResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
                 users.getContent(),
                 page,
                 size,
@@ -184,7 +213,7 @@ public class AdminController extends BaseResponse {
         return responseEntity(true, "Product updated successfully.", HttpStatus.OK, toProductView(productRepository.save(existing)));
     }
 
-    @GetMapping("/statistics")
+    @GetMapping({"/statistics", "/statistics/overview"})
     public ResponseEntity<ApiResponse<AdminStatisticsResponse>> getStatistics() {
         AdminStatisticsResponse statistics = new AdminStatisticsResponse(
                 userProfileRepository.count(),
@@ -192,6 +221,26 @@ public class AdminController extends BaseResponse {
                 orderRepository.count()
         );
         return responseEntity(true, "Admin statistics retrieved successfully.", HttpStatus.OK, statistics);
+    }
+
+    @DeleteMapping("/products/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteProduct(@PathVariable UUID id) {
+        Product existing = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Product not found"));
+        productRepository.delete(existing);
+        return responseEntity(true, "Product deleted successfully.", HttpStatus.OK);
+    }
+
+    private static String joinName(String first, String last) {
+        String f = first == null ? "" : first.trim();
+        String l = last == null ? "" : last.trim();
+        if (f.isEmpty()) {
+            return l;
+        }
+        if (l.isEmpty()) {
+            return f;
+        }
+        return f + " " + l;
     }
 
     private OrderViewResponse toOrderView(Order order) {
@@ -212,7 +261,9 @@ public class AdminController extends BaseResponse {
                 order.getStatus() == null ? null : order.getStatus().toLowerCase(Locale.ROOT),
                 order.getTrackingNumber(),
                 order.getPaymentMethod(),
-                order.getFulfillment()
+                order.getFulfillment(),
+                order.getCustomerName(),
+                order.getContactNumber()
         );
     }
 

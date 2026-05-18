@@ -45,6 +45,8 @@ public class Order {
     private String fulfillment;
     private String trackingNumber;
     private String deliveryAddress;
+    private String customerName;
+    private String contactNumber;
 
     private Instant createdAt;
 

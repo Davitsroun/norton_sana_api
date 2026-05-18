@@ -59,6 +59,8 @@ public class UserOrderController extends BaseResponse {
                 .paymentMethod(request.paymentMethod())
                 .fulfillment(request.fulfillment())
                 .deliveryAddress(request.deliveryAddress())
+                .customerName(request.customerName())
+                .contactNumber(request.contactNumber())
                 .createdAt(Instant.now())
                 .totalPrice(BigDecimal.ZERO)
                 .build();
@@ -131,7 +133,9 @@ public class UserOrderController extends BaseResponse {
                 order.getStatus() == null ? null : order.getStatus().toLowerCase(),
                 order.getTrackingNumber(),
                 order.getPaymentMethod(),
-                order.getFulfillment()
+                order.getFulfillment(),
+                order.getCustomerName(),
+                order.getContactNumber()
         );
     }
 }

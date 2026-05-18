@@ -13,6 +13,8 @@ public record OrderViewResponse(
         String status,
         String trackingNumber,
         String paymentMethod,
-        String fulfillment
+        String fulfillment,
+        String customerName,
+        String contactNumber
 ) {
 }
