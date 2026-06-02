@@ -7,6 +7,7 @@ public record ProductViewResponse(
         UUID id,
         UUID brandId,
         String name,
+        Integer stockQuantity,
         BigDecimal price,
         BigDecimal originalPrice,
         String image,

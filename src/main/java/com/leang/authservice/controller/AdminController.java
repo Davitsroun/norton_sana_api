@@ -95,8 +95,9 @@ public class AdminController extends BaseResponse {
             @RequestParam(name = "size", defaultValue = "10") int size,
             @RequestParam(name = "status", required = false) String status
     ) {
+        String normalizedStatus = (status == null || status.isBlank()) ? null : status.trim().toLowerCase(Locale.ROOT);
         Page<AdminOrderListItemResponse> orders = orderRepository
-                .findAdminOrders(status, PageRequest.of(page, size))
+                .findAdminOrders(normalizedStatus, PageRequest.of(page, size))
                 .map(adminOrderMapper::toAdminListItem);
         ApiResponseWithPagination<AdminOrderListItemResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
                 orders.getContent(),
@@ -278,6 +279,7 @@ public class AdminController extends BaseResponse {
                 product.getProductId(),
                 product.getBrand() == null ? null : product.getBrand().getBrandId(),
                 product.getName(),
+                product.getStockQuantity(),
                 product.getPrice(),
                 null,
                 product.getImageUrl(),

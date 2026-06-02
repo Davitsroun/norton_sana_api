@@ -44,13 +44,20 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("""
             SELECT COALESCE(SUM(o.totalPrice), 0) FROM Order o
-            WHERE LOWER(TRIM(o.status)) IN ('paid', 'completed')
+            WHERE LOWER(TRIM(o.status)) IN ('paid', 'shipped', 'completed')
             """)
     BigDecimal sumPaidRevenue();
 
     @Query("""
+            SELECT COALESCE(SUM(o.totalPrice), 0) FROM Order o
+            WHERE LOWER(TRIM(o.status)) IN ('paid', 'shipped', 'completed')
+            AND o.createdAt >= :from AND o.createdAt < :to
+            """)
+    BigDecimal sumRevenueBetween(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("""
             SELECT o FROM Order o
-            WHERE (:status IS NULL OR LOWER(TRIM(o.status)) = LOWER(TRIM(:status)))
+            WHERE (:status IS NULL OR LOWER(o.status) = :status)
             ORDER BY o.createdAt DESC
             """)
     Page<Order> findAdminOrders(@Param("status") String status, Pageable pageable);
@@ -61,14 +68,27 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             """)
     long countOrdersBetween(@Param("from") Instant from, @Param("to") Instant to);
 
+    @Query("""
+            SELECT COUNT(o) FROM Order o
+            WHERE LOWER(TRIM(o.status)) IN ('paid', 'shipped', 'completed')
+            AND o.createdAt >= :from AND o.createdAt < :to
+            """)
+    long countRevenueOrdersBetween(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("""
+            SELECT COUNT(o) FROM Order o
+            WHERE LOWER(TRIM(o.status)) IN ('paid', 'shipped', 'completed')
+            """)
+    long countRevenueOrders();
+
     @Query(value = """
-            SELECT DATE_TRUNC('month', created_at) AS month_start,
+            SELECT DATE_TRUNC('month', created_at AT TIME ZONE 'UTC') AS month_start,
                    COALESCE(SUM(total_price), 0) AS revenue
             FROM orders
-            WHERE LOWER(TRIM(status)) IN ('paid', 'completed')
+            WHERE LOWER(TRIM(status)) IN ('paid', 'shipped', 'completed')
               AND created_at >= :from
               AND created_at < :to
-            GROUP BY DATE_TRUNC('month', created_at)
+            GROUP BY DATE_TRUNC('month', created_at AT TIME ZONE 'UTC')
             ORDER BY month_start
             """, nativeQuery = true)
     List<Object[]> revenueByMonth(@Param("from") Instant from, @Param("to") Instant to);

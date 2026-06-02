@@ -106,6 +106,7 @@ public class CatalogController extends BaseResponse {
                 product.getProductId(),
                 product.getBrand() == null ? null : product.getBrand().getBrandId(),
                 product.getName(),
+                null,
                 product.getPrice(),
                 null,
                 product.getImageUrl(),
