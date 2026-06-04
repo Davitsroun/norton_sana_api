@@ -120,19 +120,25 @@ public class AdminDashboardController extends BaseResponse {
 
     private static double percentChange(long previous, long current) {
         if (previous == 0) {
-            return 0.0;
+            return current > 0 ? 100.0 : 0.0;
         }
-        return ((double) (current - previous) / previous) * 100.0;
+        return roundPercent(((double) (current - previous) / previous) * 100.0);
     }
 
     private static double percentChange(BigDecimal previous, BigDecimal current) {
-        if (previous == null || previous.compareTo(BigDecimal.ZERO) == 0) {
-            return 0.0;
+        BigDecimal prev = previous == null ? BigDecimal.ZERO : previous;
+        BigDecimal curr = current == null ? BigDecimal.ZERO : current;
+        if (prev.compareTo(BigDecimal.ZERO) == 0) {
+            return curr.compareTo(BigDecimal.ZERO) > 0 ? 100.0 : 0.0;
         }
-        return current.subtract(previous)
-                .divide(previous, 6, RoundingMode.HALF_UP)
+        return roundPercent(curr.subtract(prev)
+                .divide(prev, 6, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100))
-                .doubleValue();
+                .doubleValue());
+    }
+
+    private static double roundPercent(double value) {
+        return BigDecimal.valueOf(value).setScale(1, RoundingMode.HALF_UP).doubleValue();
     }
 
     private static BigDecimal nvl(BigDecimal value) {
