@@ -92,3 +92,7 @@ volumes:
   pgDataKeyCloak:
   storage:
   api_db:
+
+
+# up compose with env file
+# docker compose --env-file .env up -d --build
