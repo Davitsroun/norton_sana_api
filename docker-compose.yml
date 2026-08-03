@@ -1,65 +1,94 @@
-  services:
-  #  app:
-  #    build: .
-  #    ports:
-  #      - "8081:8081"
-    storage:
-      image: minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
-      command: minio server /var/lib/minio/data --console-address ":9001"
-      environment:
-        - MINIO_ROOT_USER=admin
-        - MINIO_ROOT_PASSWORD=admin123
-      ports:
-        - "9000:9000"
-        - "9001:9001"
-      volumes:
-        - storage:/var/lib/minio/data
-    keycloak-db:
-      image: postgres:17
-      environment:
-          - POSTGRES_DB=${KC_DB_URL_DATABASE}
-          - POSTGRES_USER=${KC_DB_USER}
-          - POSTGRES_PASSWORD=${KC_DB_PASSWORD}
-      ports:
-        - '5433:5432'
-      volumes:
-        - pgDataKeyCloak:/var/lib/postgresql/data
+services:
+  app:
+    build: .
+    ports:
+      - "8082:8082"
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:postgresql://api_db:5432/api_db
+      SPRING_DATASOURCE_USERNAME: David
+      SPRING_DATASOURCE_PASSWORD: Davit123
+      JWT_ISSUER_URI: http://localhost:8081/realms/rest-api
+      JWT_JWK_SET_URI: http://keycloak:8080/realms/rest-api/protocol/openid-connect/certs
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_REALM: rest-api
+      KEYCLOAK_CLIENT_ID: oauth-admin-client
+      KEYCLOAK_CLIENT_SECRET: ${KC_CLIENT_SECRET}
+      MINIO_URL: http://storage:9000
+      MINIO_ACCESS_NAME: admin
+      MINIO_ACCESS_SECRET: admin123
+      MINIO_BUCKET_NAME: mini-project
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      BAKONG_ACCOUNT_ID: ${BAKONG_ACCOUNT_ID:-}
+      BAKONG_BASE_URL: ${BAKONG_BASE_URL:-https://api-bakong.nbc.gov.kh}
+      EMAIL: ${EMAIL:-}
+      ONESIGNAL_APP_ID: ${ONESIGNAL_APP_ID:-}
+      ONESIGNAL_REST_API_KEY: ${ONESIGNAL_REST_API_KEY:-}
+    depends_on:
+      - api_db
+      - keycloak
+      - storage
+    restart: unless-stopped
 
-    keycloak:
-      image: quay.io/keycloak/keycloak:26.3.3
-      command: [ "start-dev" ]
-      depends_on:
-        - keycloak-db
-      environment:
-        # database
-        - KC_DB=postgres
-        - KC_DB_URL_HOST=keycloak-db
-        - KC_DB_URL_DATABASE=${KC_DB_URL_DATABASE}
-        - KC_DB_USERNAME=${KC_DB_USER}
-        - KC_DB_PASSWORD=${KC_DB_PASSWORD}
-        # keycloak credential
-        - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
-        - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
-        # network and self sign key
-        - KC_HTTP_ENABLED=true
-        - KC_HOSTNAME_STRICT_HTTPS=false
-        - KC_LOG_LEVEL=info
-      ports:
-        - "8081:8080"
-        - "8443:8443"
-      volumes:
-        - ./target/email-otp-authenticator-v1.3.5-kc-26.3.5.jar:/opt/keycloak/providers/email-otp-authenticator.jar
-    api_db:
-      image: postgres:15
-      environment:
-        - POSTGRES_DB=api_db
-        - POSTGRES_USER=David
-        - POSTGRES_PASSWORD=Davit123
-      ports:
-        - "5434:5432"
-      volumes:  
-        - api_db:/var/postgresql/data
-  volumes:
-    pgDataKeyCloak:
-    storage:
-    api_db:
+  storage:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
+    command: minio server /var/lib/minio/data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=admin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storage:/var/lib/minio/data
+
+  keycloak-db:
+    image: postgres:17
+    environment:
+      - POSTGRES_DB=${KC_DB_URL_DATABASE}
+      - POSTGRES_USER=${KC_DB_USER}
+      - POSTGRES_PASSWORD=${KC_DB_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgDataKeyCloak:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    command: ["start-dev"]
+    depends_on:
+      - keycloak-db
+    environment:
+      - KC_DB=postgres
+      - KC_DB_URL_HOST=keycloak-db
+      - KC_DB_URL_DATABASE=${KC_DB_URL_DATABASE}
+      - KC_DB_USERNAME=${KC_DB_USER}
+      - KC_DB_PASSWORD=${KC_DB_PASSWORD}
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_HTTP_ENABLED=true
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_LOG_LEVEL=info
+    ports:
+      - "8081:8080"
+      - "8443:8443"
+    volumes:
+      - ./target/email-otp-authenticator-v1.3.5-kc-26.3.5.jar:/opt/keycloak/providers/email-otp-authenticator.jar
+
+  api_db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=api_db
+      - POSTGRES_USER=David
+      - POSTGRES_PASSWORD=Davit123
+    ports:
+      - "5434:5432"
+    volumes:
+      - api_db:/var/postgresql/data
+
+volumes:
+  pgDataKeyCloak:
+  storage:
+  api_db:
