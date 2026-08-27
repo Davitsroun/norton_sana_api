@@ -1,7 +1,9 @@
-# Frontend API reference
+# Customer API & auth inventory
 
-**Base URL:** `http://localhost:8082`  
-**Auth:** `Authorization: Bearer <access_token>` (Keycloak JWT) unless marked **Public**.
+**Base URL:** `http://localhost:8082` (from frontend `constant/baseurl.js`)  
+**Auth token:** NextAuth session → Keycloak access token → `Authorization: Bearer <token>` (`getKeycloakToken()` in `constant/token.ts`).
+
+Paths below are relative to the base host. This doc reflects how **norton_skincare_ui** actually calls the Spring API, plus backend auth reality.
 
 ---
 
@@ -33,29 +35,190 @@
 }
 ```
 
-**Frontend tip:** For user orders, read `payload` (array). For catalog/admin lists, read `items`.
+**Tip:** Active/history user orders use `payload` (array). Catalog/admin lists use `items`.
 
 ---
 
-## 1. Orders (user)
+## Guest session cart (backend)
 
-| Method | Path | Query | Body |
-|--------|------|-------|------|
-| `POST` | `/api/v1/orders` | — | Checkout |
-| `GET` | `/api/v1/orders` | — | Active carts only |
-| `GET` | `/api/v1/orders/history` | — | Paid / completed |
-| `GET` | `/api/v1/orders/{orderId}` | — | One order |
+Typical ecommerce identity before login: a **guest session cookie**, not a user id.
 
-- **No `page` / `size`** on list or history.
-- After payment, **`GET /orders`** is often `[]`; use **`/orders/history`**.
+| Piece | Detail |
+|-------|--------|
+| Cookie | `GUEST_SESSION_ID` (HttpOnly, `Path=/`, `SameSite=Lax`, ~30 days) |
+| Table | `guest_sessions` (`id`, `createdAt`, `expiresAt`, `lastSeenAt`) |
+| Cart | Pending `orders` row with `userId = null`, `sessionId = <cookie>` + `order_item` lines |
+| Checkout | `guestEmail` on the order; `userId` stays null until claim/login |
 
-### Checkout body (supports frontend field names)
+### Flow
+
+1. `GET /api/v1/guest/session` (or any cart call) → sets cookie, returns `{ sessionId }`
+2. Browse public `GET /products` (no login)
+3. `POST /order-items` with cookie → cart under session
+4. `GET /orders` with cookie → active guest cart
+5. Optional: `POST /orders/guest-checkout` with email + fulfillment → sets `guestEmail`, status `processing`
+6. After login: `POST /api/v1/cart/merge` (Bearer) → merges guest lines into user pending cart, clears cookie
+
+### Frontend wiring (required later)
+
+- Send cookies: `credentials: 'include'` on fetch/axios to `localhost:8082`
+- CORS already uses `allowCredentials: true` + explicit `CORS_ALLOWED_ORIGINS` (e.g. `http://localhost:3000`)
+- Open `proxy.ts` public routes for `/shop`, `/cart`, etc. (still login-walled in the UI today)
+
+### Guest / cart endpoints
+
+| Method | Path | Auth |
+|--------|------|------|
+| `GET` | `/api/v1/guest/session` | Public (sets cookie) |
+| `GET` | `/api/v1/orders` | Public **or** JWT (cookie or Bearer) |
+| `GET` | `/api/v1/orders/{id}` | Public **or** JWT (owner check) |
+| `POST` | `/api/v1/orders/guest-checkout` | Public + guest cookie |
+| `POST/PUT/DELETE` | `/api/v1/order-items…` | Public **or** JWT |
+| `POST` | `/api/v1/cart/merge` | **JWT required** |
+| `GET` | `/api/v1/orders/history` | JWT required |
+| `POST` | `/api/v1/orders` | JWT required |
+
+#### Guest checkout body
 
 ```json
 {
-  "items": [{ "productId": "11111111-1111-1111-1111-111111111111", "quantity": 2 }],
+  "guestEmail": "alice@email.com",
+  "customerName": "Alice",
+  "contactNumber": "+855…",
+  "paymentMethod": "BAKONG",
+  "fulfillmentMethod": "pickup",
+  "deliveryAddress": null
+}
+```
+
+---
+
+## 1. Customer endpoints
+
+| Method | Path | Used from (UI / action) | Auth (backend) | Notes |
+|--------|------|-------------------------|----------------|-------|
+| `GET` | `/api/v1/products?page=&size=&minPrice=&maxPrice=&name=&categoryId=` | Shop `/shop`, Home `/home` via `getProductAction` | **Public** (Bearer optional) | `name` filter supported |
+| `GET` | `/api/v1/products/{id}` | Product detail `/shop/[productId]` | **Public** | Includes related + reviews in payload |
+| `GET` | `/api/v1/guest/session` | Call on first visit / before cart | **Public** | Sets `GUEST_SESSION_ID` |
+| `POST` | `/api/v1/orders` | `createOrderAction` only — **not called by any UI** | **Required** | Atomic checkout body exists; UI unused |
+| `GET` | `/api/v1/orders` | Cart / Nav badge | **Public or JWT** | Active pending/processing for user **or** guest session |
+| `POST` | `/api/v1/orders/guest-checkout` | Guest checkout (wire in UI) | **Public + cookie** | Sets `guestEmail`; empty cart rejected |
+| `POST` | `/api/v1/cart/merge` | After login | **JWT** | Merges guest cookie cart into user cart |
+| `GET` | `/api/v1/orders/history` | History `/history` | **Required** | Paid/completed; no pagination |
+| `GET` | `/api/v1/orders/{orderId}` | Order detail | **Public or JWT** | Owner = userId or sessionId |
+| `POST` | `/api/v1/order-items` | Shop + product detail “Add to cart” | **Public or JWT** | Creates/attaches to open cart order |
+| `GET` | `/api/v1/order-items?page=&size=` | `listOrderItemsAction` — no customer UI call | **Public or JWT** | |
+| `GET` | `/api/v1/order-items/{id}` | Unused in UI | **Public or JWT** | Owner-scoped |
+| `PUT` | `/api/v1/order-items/{id}` | Cart quantity sync | **Public or JWT** | |
+| `DELETE` | `/api/v1/order-items/{id}` | Cart line remove | **Public or JWT** | |
+| `GET` | `/api/v1/brands?page=&size=` | Admin brand picker — not customer pages | **Required** | |
+| `GET` | `/api/v1/brands/{brandId}` | Admin / service only | **Required** | |
+| `GET` | `/api/v1/categories` | Comment says Public; admin-wired in app | **Public** | Full list, no pagination |
+| `GET` | `/api/v1/favorite-brands?page=&size=` | Favorites `/favorites`, Nav, product detail | **Required** | Brand favorites (not product IDs) |
+| `POST` | `/api/v1/favorite-brands` body `{ brandId }` | Product detail heart toggle | **Required** | |
+| `DELETE` | `/api/v1/favorite-brands/{favoriteBrandId}` | Favorites + product detail | **Required** | |
+| `POST` | `/api/v1/payment-profiles` | Cart checkout (details step) | **Required** | |
+| `PUT` | `/api/v1/payment-profiles/{id}` | Cart checkout (update stored profile) | **Required** | |
+| `DELETE` | `/api/v1/payment-profiles/{id}` | Action exists — no cart UI delete | **Required** | |
+| `POST` | `/api/v1/payments` | Cart “I Have Paid” (pickup/Bakong) | **Required** | |
+| `PUT` | `/api/v1/payments/{id}` | `updatePaymentAction` — no customer UI | **Required** | |
+| `POST` | `/api/v1/bakong/generate-qr` | Cart KHQR via `useBakongKhqr` | **Public** | |
+| `POST` | `/api/v1/bakong/get-qr-image` | Same | **Public** | |
+| `POST` | `/api/v1/bakong/check-transaction` | Action/service only — UI does not poll | **Public** | |
+| `POST` | `/api/v1/reviews` | Product detail create review | **Required** | |
+| `PUT` | `/api/v1/reviews/{id}` | Product detail edit review | **Required** | |
+| `DELETE` | `/api/v1/reviews/{id}` | Product detail delete review | **Required** | |
+| `GET` | `/api/v1/user-notifications` | `NotificationContext` (header) | **Required** | Backend returns full list (no page/size) |
+| `PUT` | `/api/v1/user-notifications/{id}` body `{ read? }` | Mark read | **Required** | |
+| `DELETE` | `/api/v1/user-notifications/{id}` | Dismiss | **Required** | |
+| `POST` | `/api/v1/user-notifications` | Usually server-created on payment — no customer UI create | **Required** | |
+| `POST` | `/api/v1/files/upload-file` | Profile image upload | **Public** | Frontend may still require NextAuth session before calling |
+
+### Auth / Keycloak (not Spring `/api/v1`)
+
+| Flow | Path / mechanism | Used from | Auth? |
+|------|------------------|-----------|-------|
+| Login / session | NextAuth `app/api/auth/[...nextauth]` + Keycloak | `/login` | Public entry |
+| Register | Keycloak Admin API via `registerAction` | `/register` | Public |
+| Password reset OTP | `KEYCLOAK_PASSWORD_RESET_OTP_URL` `/send`, `/verify`, `/confirm` | `/forgot-password` | Public |
+| Profile CRUD | Keycloak Admin via `profile-actions` | `/profile` | Yes (session) |
+| Realm sessions revoke | Keycloak Admin via `session-actions` | Admin settings only | Yes (admin) |
+
+`route/authRoute.ts` lists app paths (`/login`, `/register`, …), not backend URLs.
+
+---
+
+## 2. Pages that force login (frontend)
+
+**Edge gate** — `proxy.ts` (Next 16; replaces middleware):
+
+- Public only: `/login`, `/register`, `/forgot-password`
+- Everything else (`/shop`, `/cart`, `/favorites`, `/profile`, `/home`, …) → `/login` if no JWT
+- `/` → `/login` or `/home` (or `/admin` if admin)
+- Admins on customer routes → `/admin`; non-admins on `/admin/*` → `/home`
+
+**Client `ProtectedRoute`:** used on `/home`, `/about`, `/history`.  
+Not wrapped (still blocked by proxy): `/shop`, `/shop/[productId]`, `/cart`, `/favorites`, `/profile`.
+
+**Action-level:** almost all customer Spring calls throw “Sign in required” without token. Products alone attach Bearer optionally.
+
+---
+
+## 3. Cart / checkout flow (actual UI)
+
+```
+Browse products (GET /products)
+        │
+        ▼
+Add to cart (authenticated):
+  POST /order-items { productId, quantity }
+  + localStorage "cart" via CartProvider (also written)
+        │
+        ▼
+Cart UI (authenticated):
+  GET /orders → latest pending/processing = "basket"
+  qty: PUT /order-items/{id}
+  remove: DELETE /order-items/{id}
+  Nav badge = API order qty only (not localStorage)
+        │
+        ▼
+Checkout details:
+  POST or PUT /payment-profiles
+  { deliveryOption: PICKUP|DELIVERY, fullName, contactNumber, deliveryAddress }
+  paymentProfileId cached in sessionStorage `norton:paymentProfileId:{userId}`
+        │
+   ┌────┴────┐
+   │         │
+Delivery   Pickup
+   │         │
+   │    Bakong: POST /bakong/generate-qr + get-qr-image
+   │    Confirm: POST /payments
+   │      { orderId, paymentMethod: "BAKONG", paymentStatus: "PAID",
+   │        transactionId: "bakong-md5:…" | "bakong:…", paidAt }
+   │
+   ▼
+placeOrder() — local only:
+  snapshot → localStorage `customer_order_history`
+  clear local cart if not API basket
+  navigate /history
+```
+
+**Important:**
+
+- `POST /api/v1/orders` is **never** invoked from UI. Open cart is created implicitly via `order-items`.
+- History page loads `GET /orders/history` only (ignores localStorage merge).
+- Delivery path does not call `createPayment` (COD assumed after payment-profile save).
+- UI does not poll `check-transaction`.
+
+### Alternate backend path (defined, unused by UI)
+
+`POST /api/v1/orders`:
+
+```json
+{
+  "items": [{ "productId": "uuid", "quantity": 2 }],
   "customerName": "Jane Doe",
-  "contactNumber": "+85512345678",
+  "contactNumber": "+855…",
   "fulfillmentMethod": "delivery",
   "deliveryAddress": "123 Street",
   "paymentMethod": "khqr"
@@ -64,416 +227,88 @@
 
 Also accepts `fulfillment` instead of `fulfillmentMethod`.
 
-### Success: create order (`201`)
+### Payloads the UI actually sends
 
-```json
-{
-  "success": true,
-  "message": "Order created successfully.",
-  "status": "CREATED",
-  "payload": {
-    "id": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-    "date": "2026-05-13T11:02:57.782111Z",
-    "items": [
-      {
-        "id": "4a4ff70e-3fcb-4b6d-8573-a532babef670",
-        "productName": "The Ordinary Niacinamide 10% + Zinc 1%",
-        "quantity": 2,
-        "price": 15.0,
-        "image": "https://images.unsplash.com/photo-..."
-      }
-    ],
-    "total": 15.0,
-    "status": "pending",
-    "trackingNumber": null,
-    "paymentMethod": "khqr",
-    "fulfillment": "delivery",
-    "customerName": "Jane Doe",
-    "contactNumber": "+85512345678"
-  },
-  "timestamps": "2026-05-18T11:04:33.275561Z"
-}
-```
+| Step | Body |
+|------|------|
+| Order line | `{ "productId", "quantity" }` → `POST /order-items` |
+| Payment profile | `{ "deliveryOption", "fullName", "contactNumber", "deliveryAddress" }` |
+| Payment | `{ "orderId", "paymentMethod", "paymentStatus", "transactionId", "paidAt" }` |
+| Bakong generate | `{ "currency", "amount", "merchantName" }` |
 
-### Success: active orders (`GET /orders`)
-
-```json
-{
-  "success": true,
-  "message": "Active orders retrieved successfully.",
-  "status": "OK",
-  "payload": [ /* same order shape; status pending | processing */ ],
-  "timestamps": "2026-05-18T11:04:33.275561Z"
-}
-```
-
-### Success: history (`GET /orders/history`)
-
-```json
-{
-  "success": true,
-  "message": "Order history retrieved successfully.",
-  "status": "OK",
-  "payload": [
-    {
-      "id": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-      "date": "2026-05-13T11:02:57.782111Z",
-      "items": [ { "id": "…", "productName": "…", "quantity": 1, "price": 7.5, "image": "https://..." } ],
-      "total": 7.5,
-      "status": "paid",
-      "trackingNumber": null,
-      "paymentMethod": "khqr",
-      "fulfillment": "delivery",
-      "customerName": "Jane Doe",
-      "contactNumber": "+85512345678"
-    }
-  ],
-  "timestamps": "2026-05-18T11:04:33.275561Z"
-}
-```
-
----
-
-## 2. Payments
-
-| Method | Path | Body |
-|--------|------|------|
-| `POST` | `/api/v1/payments` | Create |
-| `PUT` | `/api/v1/payments/{id}` | Update |
-
-### Success payment body
-
-```json
-{
-  "orderId": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-  "paymentMethod": "khqr",
-  "paymentStatus": "PAID",
-  "transactionId": "txn-001",
-  "paidAt": "2026-05-13T12:30:00Z"
-}
-```
-
-**Success statuses:** `PAID`, `SUCCESS`, `COMPLETED`, `SUCCEEDED` (any case).
-
-### Success response (`201`)
-
-```json
-{
-  "success": true,
-  "message": "Payment created successfully.",
-  "status": "CREATED",
-  "payload": {
-    "paymentId": "pay-uuid",
-    "paymentMethod": "khqr",
-    "paymentStatus": "SUCCESS",
-    "transactionId": "txn-001",
-    "paidAt": "2026-05-13T12:30:00Z"
-  },
-  "timestamps": "2026-05-18T12:00:00Z"
-}
-```
-
+**Success payment statuses (backend):** `PAID`, `SUCCESS`, `COMPLETED`, `SUCCEEDED` (any case).  
 **Side effects on success:** order → `paid`, notification created, other pending carts cleared.
 
-### Failed / pending (no order status change)
+---
 
-```json
-{
-  "orderId": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-  "paymentMethod": "khqr",
-  "paymentStatus": "PENDING",
-  "transactionId": null,
-  "paidAt": null
-}
-```
+## 4. Cart storage model (frontend)
+
+| Store | Key / resource | Role |
+|-------|----------------|------|
+| localStorage | `cart` | Client basket — always mirrored on add |
+| API | `GET /orders` + order-items CRUD | Source of truth for signed-in cart UI + nav badge |
+| localStorage | `customer_order_history` | Written on `placeOrder`; history page no longer reads it |
+| localStorage | `favorites` | Product-id hearts on home/shop — **not** brand favorites API |
+| sessionStorage | `norton:paymentProfileId:{userId}` | Last payment-profile id |
+
+Both local + API for cart when logged in; API drives checkout UI when open order has lines.
 
 ---
 
-## 3. Bakong (**Public**)
+## 5. Guest / session concepts
 
-| Method | Path |
-|--------|------|
-| `POST` | `/api/v1/bakong/generate-qr` |
-| `POST` | `/api/v1/bakong/get-qr-image` |
-| `POST` | `/api/v1/bakong/check-transaction` |
-
-### Check transaction (success → same as payment success)
-
-```json
-{
-  "md5": "hash-from-qr",
-  "orderId": "8442f269-4e0c-4698-ac2c-e67cd3fca646"
-}
-```
-
-```json
-{
-  "responseCode": 0,
-  "responseMessage": "Success",
-  "errorCode": null,
-  "data": { }
-}
-```
+| Concept | Status |
+|---------|--------|
+| Guest checkout / anonymous cart API | **Backend ready** (`GUEST_SESSION_ID` + order-items + guest-checkout) |
+| Guest session id / cookie cart | **Backend ready** |
+| UI `isGuest` branches | Present but largely unreachable — proxy still forces login |
+| Product detail add-to-cart | UI still requires login → `/login` until proxy opened |
+| NextAuth + Keycloak session | Real auth; token refresh via JWT callback |
+| Guest merge-on-login (API) | **`POST /api/v1/cart/merge`** (JWT + cookie) |
+| Claim paid guest orders by email | Not yet (schema has `guestEmail`) |
 
 ---
 
-## 4. Products & categories (**Public**)
+## 6. Gaps vs guest-session ecommerce
 
-| Method | Path | Query |
-|--------|------|-------|
-| `GET` | `/api/v1/products` | `page`, `size`, `categoryId`, `minPrice`, `maxPrice` |
-| `GET` | `/api/v1/products/{id}` | — |
-| `GET` | `/api/v1/categories` | — |
+- **UI still login-walls** storefront routes via `proxy.ts` — must open `/shop`, `/cart`, etc. and send cookies.
+- Dual cart drift — localStorage + API; prefer API guest cart once UI is wired.
+- Delivery checkout doesn’t always record payment; pickup does Bakong + `POST /payments` but no `check-transaction` polling.
+- Two “favorites” systems — local product IDs vs authenticated brand favorites API.
+- Categories/brands list not fully wired for customer catalog filtering.
+- Claiming historical guest paid orders by email not implemented yet.
 
-### Success: product list
-
-```json
-{
-  "items": [
-    {
-      "id": "prod-uuid",
-      "brandId": null,
-      "name": "Premium Serum",
-      "price": 29.99,
-      "originalPrice": null,
-      "image": "https://...",
-      "imageUrl2": "",
-      "imageUrl3": "",
-      "imageUrl4": "",
-      "rating": 4.5,
-      "reviews": 12,
-      "category": "Serums",
-      "description": "...",
-      "badge": null
-    }
-  ],
-  "paginationResponse": {
-    "totalElements": 50,
-    "currentPage": 0,
-    "pageSize": 10,
-    "totalPages": 5
-  }
-}
-```
-
-### Success: product detail
-
-```json
-{
-  "success": true,
-  "payload": {
-    "product": { "id": "…", "name": "…", "price": 29.99 },
-    "relateProduct": [ ],
-    "reviewver": [ ]
-  }
-}
-```
+**Bottom line (backend):** guest session cookie cart + guest checkout + merge-on-login are implemented. **UI** must stop forcing login and send credentials for cookies.
 
 ---
 
-## 5. Order items (cart CRUD)
+## 7. Backend security (`SecurityConfig`)
 
-| Method | Path | Body |
-|--------|------|------|
-| `POST` | `/api/v1/order-items` | `{ "productId": "uuid", "quantity": 1 }` |
-| `GET` | `/api/v1/order-items` | `page`, `size` |
-| `PUT` | `/api/v1/order-items/{id}` | `{ "quantity": 2 }` |
-| `DELETE` | `/api/v1/order-items/{id}` | — |
+| Rule | Paths |
+|------|-------|
+| `permitAll` | products, categories, files, bakong, auths, register, guest/**, order-items/**, `GET /orders`, `POST /orders/guest-checkout`, `GET /orders/*`, Swagger, … |
+| JWT required | `GET /orders/history`, `POST /orders`, `POST /cart/merge`, payments, payment-profiles, favorites, reviews, notifications, … |
+| `hasRole("admin")` | `/api/v1/admin/**` |
 
----
+Reviews: public GET matcher is commented out — mutating reviews require JWT; product detail still embeds reviews via public `GET /products/{id}`.
 
-## 6. User notifications
-
-| Method | Path | Body |
-|--------|------|------|
-| `GET` | `/api/v1/user-notifications` | — |
-| `PUT` | `/api/v1/user-notifications/{id}` | `{ "read": true }` |
-
-### Success: list (includes auto `PAYMENT_SUCCESS`)
-
-```json
-{
-  "success": true,
-  "payload": [
-    {
-      "notificationId": "uuid",
-      "userId": "uuid",
-      "type": "PAYMENT_SUCCESS",
-      "title": "Payment successful",
-      "body": "Your payment for order … was successful. Total: 30 USD.",
-      "orderId": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-      "paymentId": "uuid",
-      "read": false,
-      "createdAt": "2026-05-13T12:30:00Z"
-    }
-  ]
-}
-```
+Swagger: `http://localhost:8082/swagger-ui.html`
 
 ---
 
-## 7. Admin API (`ROLE_admin` required)
+## 8. Admin API (`ROLE_admin`)
 
-### Dashboard
+| Area | Paths |
+|------|-------|
+| Dashboard | `GET /api/v1/admin/dashboard/summary`, `…/revenue-chart`, `…/orders/recent` |
+| Orders | `GET /api/v1/admin/orders`, `GET /api/v1/admin/orders/{id}` (includes `items[]`), `PATCH /api/v1/admin/orders/{id}/status` |
+| Users | `GET /api/v1/admin/users` |
+| Products | CRUD `/api/v1/admin/products` |
+| Statistics | `GET /api/v1/admin/statistics` |
 
-| Method | Path | Query |
-|--------|------|-------|
-| `GET` | `/api/v1/admin/dashboard/summary` | — |
-| `GET` | `/api/v1/admin/dashboard/revenue-chart` | optional `from`, `to` (ISO-8601) |
-| `GET` | `/api/v1/admin/orders/recent` | `limit` (default 10, max 50) |
-
-#### Success: dashboard summary
-
-```json
-{
-  "success": true,
-  "payload": {
-    "totalRevenue": 24580.5,
-    "totalOrders": 1234,
-    "totalUsers": 5678,
-    "growthRatePercent": 8.2,
-    "ordersDeltaPercent": 8.2,
-    "usersDeltaPercent": 0.0
-  }
-}
-```
-
-#### Success: revenue chart
-
-```json
-{
-  "success": true,
-  "payload": [
-    { "periodStart": "2026-01-01T00:00:00Z", "revenue": 1200.0 },
-    { "periodStart": "2026-02-01T00:00:00Z", "revenue": 1850.5 }
-  ]
-}
-```
-
-#### Success: recent orders
-
-```json
-{
-  "success": true,
-  "payload": [
-    {
-      "id": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-      "customerName": "Brooklyn Zoe",
-      "customerEmail": "brooklyn@example.com",
-      "deliveryAddress": "302 Snyder Street",
-      "placedAt": "2020-07-31T10:00:00Z",
-      "totalAmount": 64.0,
-      "currency": "USD",
-      "status": "PAID",
-      "avatarUrl": "https://..."
-    }
-  ]
-}
-```
-
-### Admin orders
-
-| Method | Path | Query / body |
-|--------|------|----------------|
-| `GET` | `/api/v1/admin/orders` | `page`, `size`, optional `status` |
-| `PATCH` | `/api/v1/admin/orders/{id}/status` | `{ "status": "shipped", "trackingNumber": "TRK-001" }` |
-
-#### Success: admin order list
-
-```json
-{
-  "items": [
-    {
-      "id": "8442f269-4e0c-4698-ac2c-e67cd3fca646",
-      "customerName": "Brooklyn Zoe",
-      "customerEmail": "brooklyn@example.com",
-      "deliveryAddress": "302 Snyder Street",
-      "placedAt": "2020-07-31T10:00:00Z",
-      "totalAmount": 64.0,
-      "currency": "USD",
-      "status": "PENDING",
-      "avatarUrl": "https://..."
-    }
-  ],
-  "paginationResponse": { "totalElements": 1, "currentPage": 0, "pageSize": 10, "totalPages": 1 }
-}
-```
-
-### Admin users
-
-`GET /api/v1/admin/users?page=&size=`
-
-```json
-{
-  "items": [
-    {
-      "id": "67fc41cd-3cce-4cc4-b28c-cf561421f7e1",
-      "name": "Sroun Davit",
-      "email": "sroundavit@gmail.com",
-      "joinedAt": "2023-01-01T00:00:00Z",
-      "orderCount": 12,
-      "status": "ACTIVE",
-      "role": "CUSTOMER",
-      "avatarUrl": "https://..."
-    }
-  ],
-  "paginationResponse": { "totalElements": 1, "currentPage": 0, "pageSize": 10, "totalPages": 1 }
-}
-```
-
-### Admin products
-
-| Method | Path |
-|--------|------|
-| `GET` | `/api/v1/admin/products` |
-| `POST` | `/api/v1/admin/products` |
-| `PUT` | `/api/v1/admin/products/{id}` |
-| `DELETE` | `/api/v1/admin/products/{id}` |
-
-```json
-{
-  "name": "Premium CBD Oil",
-  "description": "...",
-  "price": 49.99,
-  "stockQuantity": 150,
-  "imageUrl": "https://...",
-  "categoryId": "category-uuid",
-  "brandId": null
-}
-```
-
-### Statistics
-
-`GET /api/v1/admin/statistics` or `/api/v1/admin/statistics/overview`
-
-```json
-{
-  "success": true,
-  "payload": {
-    "totalUsers": 120,
-    "totalProducts": 45,
-    "totalOrders": 890
-  }
-}
-```
-
----
-
-## 8. End-to-end checkout flow (frontend)
-
-1. `POST /api/v1/orders` → get `payload.id`
-2. Pay via `POST /api/v1/payments` with `paymentStatus: "PAID"` **or** Bakong `check-transaction` with `orderId`
-3. `GET /api/v1/orders` → `payload: []`
-4. `GET /api/v1/orders/history` → paid order
-5. `GET /api/v1/user-notifications` → `PAYMENT_SUCCESS`
-
----
-
-## Not implemented yet (UI may keep mocking)
+### Not implemented yet (UI may keep mocking)
 
 - `GET /api/v1/admin/settings`
 - Offers / promotions CRUD
 - `DELETE /api/v1/admin/orders/{id}`
 - Dedicated inventory / stock alerts endpoint
-
-Swagger: `http://localhost:8082/swagger-ui.html`

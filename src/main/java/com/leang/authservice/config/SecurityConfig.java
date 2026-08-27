@@ -4,22 +4,25 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.http.HttpMethod;
 
-import java.util.*;
-
-import org.springframework.security.core.GrantedAuthority;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 import static org.springframework.security.config.Customizer.withDefaults;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
@@ -45,15 +48,21 @@ public class SecurityConfig {
                                 "/error",
                                 "/api/v1/bakong/**",
                                 "/api/v1/notifications/sendMessageToAllUsers",
-                                "/api/v1/notifications/sendMessageToUser/**"
+                                "/api/v1/notifications/sendMessageToUser/**",
+                                "/api/v1/guest/**",
+                                "/api/v1/order-items/**"
                         ).permitAll()
-                        // .requestMatchers(HttpMethod.GET, "/api/v1/reviews", "/api/v1/reviews/*").permitAll()
-                         .requestMatchers("/api/v1/admin/**").hasRole("admin")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/history").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders/guest-checkout").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/*").permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("admin")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(unauthorizedEntryPoint()) // fallback for unauthorized
+                        .authenticationEntryPoint(unauthorizedEntryPoint())
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
@@ -62,32 +71,31 @@ public class SecurityConfig {
         return http.build();
     }
 
-private JwtAuthenticationConverter jwtAuthenticationConverter() {
-    JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+    private JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
 
-    converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-        Collection<GrantedAuthority> authorities = new ArrayList<>();
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            Collection<GrantedAuthority> authorities = new ArrayList<>();
 
-        // Realm roles
-        Map<String, Object> realmAccess = jwt.getClaim("realm_access");
-        if (realmAccess != null && realmAccess.get("roles") instanceof List<?> realmRoles) {
-            realmRoles.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
-        }
-
-        // Client roles
-        Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
-        if (resourceAccess != null) {
-            Map<String, Object> clientRoles = (Map<String, Object>) resourceAccess.get(keycloakClientId);
-            if (clientRoles != null && clientRoles.get("roles") instanceof List<?> clientRoleList) {
-                clientRoleList.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
+            Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+            if (realmAccess != null && realmAccess.get("roles") instanceof List<?> realmRoles) {
+                realmRoles.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
             }
-        }
 
-        return authorities;
-    });
+            Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
+            if (resourceAccess != null) {
+                Map<String, Object> clientRoles = (Map<String, Object>) resourceAccess.get(keycloakClientId);
+                if (clientRoles != null && clientRoles.get("roles") instanceof List<?> clientRoleList) {
+                    clientRoleList.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
+                }
+            }
 
-    return converter;
-}
+            return authorities;
+        });
+
+        return converter;
+    }
+
     @Bean
     public AuthenticationEntryPoint unauthorizedEntryPoint() {
         return (request, response, authException) -> {
@@ -97,4 +105,3 @@ private JwtAuthenticationConverter jwtAuthenticationConverter() {
         };
     }
 }
-

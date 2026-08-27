@@ -44,10 +44,15 @@ public class CatalogController extends BaseResponse {
             @RequestParam(name = "size", defaultValue = "10") int size,
             @RequestParam(name = "categoryId", required = false) UUID categoryId,
             @RequestParam(name = "minPrice", required = false) BigDecimal minPrice,
-            @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice
+            @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice,
+            @RequestParam(name = "name", required = false) String name
     ) {
+        String namePattern = null;
+        if (name != null && !name.isBlank()) {
+            namePattern = "%" + name.trim().toLowerCase(Locale.ROOT) + "%";
+        }
         Page<Product> products = productRepository.searchProducts(
-                null,
+                namePattern,
                 null,
                 categoryId,
                 minPrice,

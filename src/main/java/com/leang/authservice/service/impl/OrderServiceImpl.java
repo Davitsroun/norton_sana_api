@@ -1,20 +1,25 @@
 package com.leang.authservice.service.impl;
 
-import com.leang.authservice.enums.Status;
+import com.leang.authservice.exception.BadRequestException;
 import com.leang.authservice.exception.NotFoundException;
+import com.leang.authservice.model.CartOwner;
 import com.leang.authservice.model.dto.request.OrderCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.entity.Order;
 import com.leang.authservice.repository.OrderRepository;
 import com.leang.authservice.service.OrderService;
+import com.leang.authservice.util.OrderStatuses;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -25,17 +30,32 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Order create(OrderCreateRequest dto) {
-
         Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        // extract info from token
         String userId = jwt.getClaimAsString("sub");
+        String status = dto.getStatus() == null ? OrderStatuses.PENDING : dto.getStatus().name().toLowerCase();
         Order order = Order.builder()
                 .userId(UUID.fromString(userId))
                 .totalPrice(null)
-                .status(dto.getStatus().name())
+                .status(status)
                 .createdAt(Instant.now())
                 .build();
+        return orderRepository.save(order);
+    }
 
+    @Override
+    @Transactional
+    public Order createPendingCart(CartOwner owner) {
+        if (owner == null || (!owner.isRegistered() && !owner.isGuest())) {
+            throw new BadRequestException("Cart owner required");
+        }
+        Order order = Order.builder()
+                .userId(owner.userId())
+                .sessionId(owner.sessionId())
+                .totalPrice(BigDecimal.ZERO)
+                .status(OrderStatuses.PENDING)
+                .currency("USD")
+                .createdAt(Instant.now())
+                .build();
         return orderRepository.save(order);
     }
 
@@ -77,9 +97,43 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public UUID getUserOrder() {
         Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        // extract info from token
         String userId = jwt.getClaimAsString("sub");
-        return orderRepository.getOrderIByUserIdAndStatus(UUID.fromString(userId), Status.PENDING.name());
+        return findPendingCartId(CartOwner.user(UUID.fromString(userId)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID findPendingCartId(CartOwner owner) {
+        List<UUID> ids;
+        if (owner.isRegistered()) {
+            ids = orderRepository.findPendingOrderIdsByUserId(owner.userId());
+        } else if (owner.isGuest()) {
+            ids = orderRepository.findPendingOrderIdsBySessionId(owner.sessionId());
+        } else {
+            return null;
+        }
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    @Override
+    @Transactional
+    public Order findOrCreatePendingCart(CartOwner owner) {
+        UUID orderId = findPendingCartId(owner);
+        if (orderId == null) {
+            return createPendingCart(owner);
+        }
+        return getById(orderId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Order> findActiveCarts(CartOwner owner) {
+        if (owner.isRegistered()) {
+            return orderRepository.findActiveOrdersForUser(owner.userId());
+        }
+        if (owner.isGuest()) {
+            return orderRepository.findActiveOrdersForSession(owner.sessionId());
+        }
+        return List.of();
     }
 }
-

@@ -7,6 +7,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
@@ -22,7 +23,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        indexes = {
+                @Index(name = "idx_orders_session_id", columnList = "sessionId"),
+                @Index(name = "idx_orders_guest_email", columnList = "guestEmail")
+        }
+)
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -34,8 +41,14 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID orderId;
 
-    // Keycloak user ID
+    /** Keycloak user ID; null for guest carts/orders. */
     private UUID userId;
+
+    /** Guest browser session; null after merge or for pure user carts. */
+    private UUID sessionId;
+
+    /** Set at guest checkout; links order without an account. */
+    private String guestEmail;
 
     private BigDecimal totalPrice;
 

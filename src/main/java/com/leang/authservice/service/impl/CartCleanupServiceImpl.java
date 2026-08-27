@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,7 +27,19 @@ public class CartCleanupServiceImpl implements CartCleanupService {
     @Override
     @Transactional
     public void clearOtherActiveOrdersExcept(UUID userId, UUID paidOrderId) {
-        List<Order> active = orderRepository.findActiveOrdersForUser(userId);
+        clearOtherActiveOrdersExcept(userId, null, paidOrderId);
+    }
+
+    @Override
+    @Transactional
+    public void clearOtherActiveOrdersExcept(UUID userId, UUID sessionId, UUID paidOrderId) {
+        List<Order> active = new ArrayList<>();
+        if (userId != null) {
+            active.addAll(orderRepository.findActiveOrdersForUser(userId));
+        }
+        if (sessionId != null) {
+            active.addAll(orderRepository.findActiveOrdersForSession(sessionId));
+        }
         for (Order o : active) {
             if (o.getOrderId().equals(paidOrderId)) {
                 continue;

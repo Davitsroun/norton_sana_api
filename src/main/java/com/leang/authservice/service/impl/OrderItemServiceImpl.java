@@ -1,10 +1,9 @@
 package com.leang.authservice.service.impl;
 
-import com.leang.authservice.enums.Status;
 import com.leang.authservice.exception.BadRequestException;
 import com.leang.authservice.exception.ForbiddenException;
 import com.leang.authservice.exception.NotFoundException;
-import com.leang.authservice.model.dto.request.OrderCreateRequest;
+import com.leang.authservice.model.CartOwner;
 import com.leang.authservice.model.dto.request.OrderItemCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.entity.Order;
@@ -12,15 +11,19 @@ import com.leang.authservice.model.entity.OrderItem;
 import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
-import com.leang.authservice.service.CurrentUserService;
+import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.OrderItemService;
 import com.leang.authservice.service.OrderService;
 import com.leang.authservice.service.ProductService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -34,24 +37,15 @@ public class OrderItemServiceImpl implements OrderItemService {
     private final OrderService orderService;
     private final OrderRepository orderRepository;
     private final ProductService productService;
-    private final CurrentUserService currentUserService;
+    private final CartOwnerResolver cartOwnerResolver;
 
     @Override
     public OrderItem create(OrderItemCreateRequest dto) {
-        // Find existing pending order for current user, or create one
-        UUID orderId = orderService.getUserOrder();
-        Order order;
-        if (orderId == null) {
-            OrderCreateRequest orderReq = OrderCreateRequest.builder()
-                    .status(Status.PENDING)
-                    .build();
-            order = orderService.create(orderReq);
-        } else {
-            order = orderService.getById(orderId);
-        }
+        CartOwner owner = requireOwner();
+        Order order = orderService.findOrCreatePendingCart(owner);
 
         Product product = productService.getById(dto.getProductId());
-        if (product.getStockQuantity() < dto.getQuantity()){
+        if (product.getStockQuantity() < dto.getQuantity()) {
             throw new BadRequestException("Product have lest stock or out of stock");
         }
 
@@ -59,7 +53,6 @@ public class OrderItemServiceImpl implements OrderItemService {
         productService.update(product.getProductId(), product);
 
         BigDecimal price = product.getPrice().multiply(BigDecimal.valueOf(dto.getQuantity()));
-
 
         OrderItem orderItem = OrderItem.builder()
                 .order(order)
@@ -139,10 +132,27 @@ public class OrderItemServiceImpl implements OrderItemService {
         );
     }
 
+    private CartOwner requireOwner() {
+        ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs == null) {
+            throw new BadRequestException("No HTTP request in context");
+        }
+        HttpServletRequest request = attrs.getRequest();
+        HttpServletResponse response = attrs.getResponse();
+        if (response == null) {
+            throw new BadRequestException("No HTTP response in context");
+        }
+        return cartOwnerResolver.resolve(request, response);
+    }
+
     private OrderItem requireOwnedOrderItem(UUID orderItemId) {
-        UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        return orderItemRepository.findByOrderItemIdAndOrder_UserId(orderItemId, userId)
+        CartOwner owner = requireOwner();
+        if (owner.isRegistered()) {
+            return orderItemRepository.findByOrderItemIdAndOrder_UserId(orderItemId, owner.userId())
+                    .orElseThrow(() -> new ForbiddenException("You can only access order items from your own cart."));
+        }
+        return orderItemRepository
+                .findByOrderItemIdAndOrder_SessionIdAndOrder_UserIdIsNull(orderItemId, owner.sessionId())
                 .orElseThrow(() -> new ForbiddenException("You can only access order items from your own cart."));
     }
 }
-

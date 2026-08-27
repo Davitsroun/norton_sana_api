@@ -7,7 +7,6 @@ import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.model.entity.OrderItem;
 import com.leang.authservice.service.OrderItemService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,7 +19,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/order-items")
 @RequiredArgsConstructor
 @Tag(name = "OrderItem")
-@SecurityRequirement(name = "bearerAuth")
 public class OrderItemController extends BaseResponse {
 
     private final OrderItemService orderItemService;

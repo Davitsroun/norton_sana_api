@@ -69,7 +69,11 @@ public class PaymentSuccessSynchronizer {
         }
         Order refreshed = orderRepository.findById(orderId).orElse(order);
         userNotificationService.notifyPaymentSuccessOnce(refreshed, payment);
-        cartCleanupService.clearOtherActiveOrdersExcept(refreshed.getUserId(), refreshed.getOrderId());
+        cartCleanupService.clearOtherActiveOrdersExcept(
+                refreshed.getUserId(),
+                refreshed.getSessionId(),
+                refreshed.getOrderId()
+        );
     }
 
     /**
@@ -94,6 +98,10 @@ public class PaymentSuccessSynchronizer {
         paymentRepository.save(payment);
         Order refreshed = orderRepository.findById(orderId).orElse(order);
         userNotificationService.notifyPaymentSuccessOnce(refreshed, payment);
-        cartCleanupService.clearOtherActiveOrdersExcept(refreshed.getUserId(), refreshed.getOrderId());
+        cartCleanupService.clearOtherActiveOrdersExcept(
+                refreshed.getUserId(),
+                refreshed.getSessionId(),
+                refreshed.getOrderId()
+        );
     }
 }

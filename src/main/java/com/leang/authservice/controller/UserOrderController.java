@@ -1,6 +1,8 @@
 package com.leang.authservice.controller;
 
+import com.leang.authservice.model.CartOwner;
 import com.leang.authservice.model.dto.request.CreateOrderRequest;
+import com.leang.authservice.model.dto.request.GuestCheckoutRequest;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.model.dto.response.OrderLineViewResponse;
@@ -11,10 +13,15 @@ import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
 import com.leang.authservice.repository.ProductRepository;
+import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.CurrentUserService;
-
+import com.leang.authservice.service.OrderService;
+import com.leang.authservice.util.OrderStatuses;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,22 +38,25 @@ import org.springframework.web.bind.annotation.RestController;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/orders")
 @RequiredArgsConstructor
 @Tag(name = "UserOrder")
-@SecurityRequirement(name = "bearerAuth")
 public class UserOrderController extends BaseResponse {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final CurrentUserService currentUserService;
+    private final CartOwnerResolver cartOwnerResolver;
+    private final OrderService orderService;
 
     @PostMapping
     @Transactional
+    @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<ApiResponse<OrderViewResponse>> createOrder(
             @Valid @RequestBody CreateOrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
@@ -54,7 +64,7 @@ public class UserOrderController extends BaseResponse {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
         Order order = Order.builder()
                 .userId(userId)
-                .status("pending")
+                .status(OrderStatuses.PENDING)
                 .currency("USD")
                 .paymentMethod(request.paymentMethod())
                 .fulfillment(request.fulfillment())
@@ -84,19 +94,48 @@ public class UserOrderController extends BaseResponse {
         return responseEntity(true, "Order created successfully.", HttpStatus.CREATED, toView(savedOrder));
     }
 
+    @Operation(summary = "Active cart(s) for JWT user or guest session cookie")
     @GetMapping
     @Transactional(readOnly = true)
-    public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrders() {
-        UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        List<OrderViewResponse> orders = orderRepository.findActiveOrdersForUser(userId)
+    public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrders(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        CartOwner owner = cartOwnerResolver.resolve(request, response);
+        List<OrderViewResponse> orders = orderService.findActiveCarts(owner)
                 .stream()
                 .map(this::toView)
                 .toList();
         return responseEntity(true, "Active orders retrieved successfully.", HttpStatus.OK, orders);
     }
 
+    @Operation(summary = "Guest checkout: attach email and fulfillment to pending session cart")
+    @PostMapping("/guest-checkout")
+    @Transactional
+    public ResponseEntity<ApiResponse<OrderViewResponse>> guestCheckout(
+            @Valid @RequestBody GuestCheckoutRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        CartOwner guest = cartOwnerResolver.resolveGuestOnly(request, response);
+        Order order = orderService.findOrCreatePendingCart(guest);
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            throw new IllegalArgumentException("Guest cart is empty");
+        }
+        order.setGuestEmail(body.guestEmail().trim().toLowerCase(Locale.ROOT));
+        order.setCustomerName(body.customerName());
+        order.setContactNumber(body.contactNumber());
+        order.setPaymentMethod(body.paymentMethod());
+        order.setFulfillment(body.fulfillment());
+        order.setDeliveryAddress(body.deliveryAddress());
+        order.setStatus(OrderStatuses.PROCESSING);
+        orderRepository.save(order);
+        return responseEntity(true, "Guest checkout details saved.", HttpStatus.OK, toView(order));
+    }
+
     @GetMapping("/history")
     @Transactional(readOnly = true)
+    @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrderHistory() {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
         List<OrderViewResponse> orders = orderRepository.findOrderHistoryForUser(userId)
@@ -108,10 +147,20 @@ public class UserOrderController extends BaseResponse {
 
     @GetMapping("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}")
     @Transactional(readOnly = true)
-    public ResponseEntity<ApiResponse<OrderViewResponse>> getMyOrderById(@PathVariable UUID id) {
-        UUID userId = UUID.fromString(currentUserService.keycloakSub());
-        Order order = orderRepository.findByOrderIdAndUserId(id, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+    public ResponseEntity<ApiResponse<OrderViewResponse>> getMyOrderById(
+            @PathVariable UUID id,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        CartOwner owner = cartOwnerResolver.resolve(request, response);
+        Order order;
+        if (owner.isRegistered()) {
+            order = orderRepository.findByOrderIdAndUserId(id, owner.userId())
+                    .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        } else {
+            order = orderRepository.findByOrderIdAndSessionIdAndUserIdIsNull(id, owner.sessionId())
+                    .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        }
         return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, toView(order));
     }
 

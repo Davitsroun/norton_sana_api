@@ -14,13 +14,35 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
+
+    @Query("""
+            SELECT o.orderId FROM Order o
+            WHERE o.userId = :userId
+            AND LOWER(TRIM(o.status)) = 'pending'
+            ORDER BY o.createdAt DESC
+            """)
+    List<UUID> findPendingOrderIdsByUserId(@Param("userId") UUID userId);
+
+    @Query("""
+            SELECT o.orderId FROM Order o
+            WHERE o.sessionId = :sessionId
+            AND o.userId IS NULL
+            AND LOWER(TRIM(o.status)) = 'pending'
+            ORDER BY o.createdAt DESC
+            """)
+    List<UUID> findPendingOrderIdsBySessionId(@Param("sessionId") UUID sessionId);
+
+    /** Legacy exact-status match; prefer findPendingOrderIdByUserId. */
     @Query("select o.orderId from Order o where o.userId = :userId and o.status = :status")
     UUID getOrderIByUserIdAndStatus(@Param("userId") UUID userId, @Param("status") String status);
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+
     List<Order> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<Order> findByOrderIdAndUserId(UUID orderId, UUID userId);
+
+    Optional<Order> findByOrderIdAndSessionIdAndUserIdIsNull(UUID orderId, UUID sessionId);
 
     /** Unpaid / in-progress orders (cart + checkout before payment). */
     @Query("""
@@ -30,6 +52,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             ORDER BY o.createdAt DESC
             """)
     List<Order> findActiveOrdersForUser(@Param("userId") UUID userId);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.sessionId = :sessionId
+            AND o.userId IS NULL
+            AND LOWER(TRIM(o.status)) IN ('pending', 'processing')
+            ORDER BY o.createdAt DESC
+            """)
+    List<Order> findActiveOrdersForSession(@Param("sessionId") UUID sessionId);
 
     /** Paid or completed orders for purchase history. */
     @Query("""
@@ -93,4 +124,3 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             """, nativeQuery = true)
     List<Object[]> revenueByMonth(@Param("from") Instant from, @Param("to") Instant to);
 }
-

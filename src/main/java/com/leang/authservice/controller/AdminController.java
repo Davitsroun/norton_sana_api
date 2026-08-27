@@ -2,6 +2,7 @@ package com.leang.authservice.controller;
 
 import com.leang.authservice.model.dto.request.AdminUpdateOrderStatusRequest;
 import com.leang.authservice.model.dto.request.ProductRequest;
+import com.leang.authservice.model.dto.response.AdminOrderDetailResponse;
 import com.leang.authservice.model.dto.response.AdminOrderListItemResponse;
 import com.leang.authservice.model.dto.response.AdminStatisticsResponse;
 import com.leang.authservice.model.dto.response.AdminUserListItemResponse;
@@ -30,6 +31,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -106,6 +108,14 @@ public class AdminController extends BaseResponse {
                 (int) orders.getTotalElements()
         );
         return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/orders/{id}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<AdminOrderDetailResponse>> getOrderById(@PathVariable UUID id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, adminOrderMapper.toAdminDetail(order));
     }
 
     @PatchMapping("/orders/{id}/status")

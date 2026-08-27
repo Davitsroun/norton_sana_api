@@ -96,3 +96,4 @@ volumes:
 
 # up compose with env file
 # docker compose --env-file .env up -d --build
+#docker compose --env-file .env up -d --build app
