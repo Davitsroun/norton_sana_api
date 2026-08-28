@@ -15,6 +15,7 @@ import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.OrderItemService;
 import com.leang.authservice.service.OrderService;
 import com.leang.authservice.service.ProductService;
+import com.leang.authservice.util.ProductCostHelper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +60,7 @@ public class OrderItemServiceImpl implements OrderItemService {
                 .product(product)
                 .quantity(dto.getQuantity())
                 .price(price)
+                .unitCost(ProductCostHelper.unitCost(product))
                 .build();
         OrderItem item = orderItemRepository.save(orderItem);
         order.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(order.getOrderId()));

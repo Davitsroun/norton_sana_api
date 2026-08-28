@@ -5,6 +5,8 @@ import java.time.Instant;
 
 public record AdminRevenueChartPointResponse(
         Instant periodStart,
-        BigDecimal revenue
+        BigDecimal revenue,
+        BigDecimal cost,
+        BigDecimal profit
 ) {
 }

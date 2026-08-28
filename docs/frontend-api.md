@@ -300,10 +300,52 @@ Swagger: `http://localhost:8082/swagger-ui.html`
 
 | Area | Paths |
 |------|-------|
-| Dashboard | `GET /api/v1/admin/dashboard/summary`, `…/revenue-chart`, `…/orders/recent` |
+| Dashboard | `GET /api/v1/admin/dashboard/summary` (revenue, cost, profit, margin), `…/revenue-chart` & `…/profit-chart` (`groupBy=month\|year`), `…/orders/recent` |
 | Orders | `GET /api/v1/admin/orders`, `GET /api/v1/admin/orders/{id}` (includes `items[]`), `PATCH /api/v1/admin/orders/{id}/status` |
 | Users | `GET /api/v1/admin/users` |
-| Products | CRUD `/api/v1/admin/products` |
+| Products | CRUD `/api/v1/admin/products` — includes `costPrice` (COGS per unit) |
+
+### Admin product cost & profit
+
+**Product create/update** — add `costPrice` (what you pay per unit; not shown on public catalog):
+
+```json
+{
+  "name": "Premium Serum",
+  "price": 29.99,
+  "costPrice": 12.00,
+  "stockQuantity": 100,
+  "categoryId": "…"
+}
+```
+
+**Order lines** snapshot `unitCost` from `product.costPrice` when items are added (historical profit stays correct if cost changes later).
+
+**Dashboard summary** — `GET /api/v1/admin/dashboard/summary`:
+
+```json
+{
+  "totalRevenue": 50000,
+  "totalCost": 22000,
+  "totalProfit": 28000,
+  "profitMarginPercent": 56.0,
+  "totalOrders": 120,
+  "totalUsers": 80,
+  "growthRatePercent": 8.2,
+  "ordersDeltaPercent": 5.0,
+  "usersDeltaPercent": 2.1
+}
+```
+
+**Chart** — `GET /api/v1/admin/dashboard/revenue-chart?from=&to=&groupBy=month|year` (same shape as `profit-chart`):
+
+```json
+[
+  { "periodStart": "2026-01-01T00:00:00Z", "revenue": 5000, "cost": 2100, "profit": 2900 }
+]
+```
+
+Only **paid / shipped / completed** orders count toward revenue, cost, and profit.
 | Statistics | `GET /api/v1/admin/statistics` |
 
 ### Not implemented yet (UI may keep mocking)

@@ -17,6 +17,9 @@ public record ProductRequest(
         @PositiveOrZero
         BigDecimal price,
 
+        @PositiveOrZero
+        BigDecimal costPrice,
+
         @NotNull
         @PositiveOrZero
         Integer stockQuantity,

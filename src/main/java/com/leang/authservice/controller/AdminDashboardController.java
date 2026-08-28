@@ -4,6 +4,7 @@ import com.leang.authservice.model.dto.response.AdminDashboardSummaryResponse;
 import com.leang.authservice.model.dto.response.AdminRevenueChartPointResponse;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.BaseResponse;
+import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
 import com.leang.authservice.repository.UserProfileRepository;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -19,11 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,7 @@ import java.util.Map;
 public class AdminDashboardController extends BaseResponse {
 
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
     private final UserProfileRepository userProfileRepository;
 
     @GetMapping("/summary")
@@ -57,13 +60,15 @@ public class AdminDashboardController extends BaseResponse {
         double revenueGrowth = percentChange(previousRevenue, currentRevenue);
 
         long usersTotal = userProfileRepository.count();
-        BigDecimal revenue = orderRepository.sumPaidRevenue();
-        if (revenue == null) {
-            revenue = BigDecimal.ZERO;
-        }
+        BigDecimal totalRevenue = scale2(nvl(orderRepository.sumPaidRevenue()));
+        BigDecimal totalCost = scale2(nvl(orderItemRepository.sumPaidCost()));
+        BigDecimal totalProfit = scale2(totalRevenue.subtract(totalCost));
 
         AdminDashboardSummaryResponse body = new AdminDashboardSummaryResponse(
-                revenue,
+                totalRevenue,
+                totalCost,
+                totalProfit,
+                profitMarginPercent(totalRevenue, totalProfit),
                 orderRepository.countRevenueOrders(),
                 usersTotal,
                 revenueGrowth,
@@ -76,46 +81,90 @@ public class AdminDashboardController extends BaseResponse {
     @GetMapping("/revenue-chart")
     public ResponseEntity<ApiResponse<List<AdminRevenueChartPointResponse>>> revenueChart(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "groupBy", defaultValue = "month") String groupBy
     ) {
-        ZonedDateTime nowMonthUtc = ZonedDateTime.now(ZoneOffset.UTC)
-                .withDayOfMonth(1)
-                .truncatedTo(ChronoUnit.DAYS);
+        return responseEntity(true, "Revenue chart loaded", HttpStatus.OK, buildProfitChart(from, to, groupBy));
+    }
+
+    @GetMapping("/profit-chart")
+    public ResponseEntity<ApiResponse<List<AdminRevenueChartPointResponse>>> profitChart(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "groupBy", defaultValue = "month") String groupBy
+    ) {
+        return responseEntity(true, "Profit chart loaded", HttpStatus.OK, buildProfitChart(from, to, groupBy));
+    }
+
+    private List<AdminRevenueChartPointResponse> buildProfitChart(LocalDate from, LocalDate to, String groupBy) {
+        boolean byYear = "year".equalsIgnoreCase(groupBy.trim());
+
+        ZonedDateTime nowPeriodUtc = ZonedDateTime.now(ZoneOffset.UTC);
+        if (byYear) {
+            nowPeriodUtc = nowPeriodUtc.withDayOfYear(1).truncatedTo(ChronoUnit.DAYS);
+        } else {
+            nowPeriodUtc = nowPeriodUtc.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
+        }
 
         Instant start = (from != null
                 ? from.atStartOfDay(ZoneOffset.UTC)
-                : nowMonthUtc.minusMonths(11)).toInstant();
+                : (byYear ? nowPeriodUtc.minusYears(4) : nowPeriodUtc.minusMonths(11))).toInstant();
 
         Instant endExclusive = (to != null
                 ? to.plusDays(1).atStartOfDay(ZoneOffset.UTC)
-                : nowMonthUtc.plusMonths(1)).toInstant();
+                : (byYear ? nowPeriodUtc.plusYears(1) : nowPeriodUtc.plusMonths(1))).toInstant();
 
-        Map<Instant, BigDecimal> dbRevenueByMonth = new LinkedHashMap<>();
-        for (Object[] row : orderRepository.revenueByMonth(start, endExclusive)) {
-            Instant period = normalizeToUtcMonthStart(toInstant(row[0]));
-            BigDecimal rev = row[1] instanceof BigDecimal b
-                    ? b
-                    : BigDecimal.valueOf(((Number) row[1]).doubleValue());
-            dbRevenueByMonth.put(period, rev.setScale(2, RoundingMode.HALF_UP));
+        Map<Instant, PeriodTotals> dbByPeriod = new LinkedHashMap<>();
+        List<Object[]> rows = byYear
+                ? orderItemRepository.profitByYear(start, endExclusive)
+                : orderItemRepository.profitByMonth(start, endExclusive);
+
+        for (Object[] row : rows) {
+            Instant period = byYear
+                    ? normalizeToUtcYearStart(toInstant(row[0]))
+                    : normalizeToUtcMonthStart(toInstant(row[0]));
+            BigDecimal revenue = toBigDecimal(row[1]);
+            BigDecimal cost = toBigDecimal(row[2]);
+            dbByPeriod.put(period, new PeriodTotals(revenue, cost));
         }
 
-        ZonedDateTime cursor = start.atZone(ZoneOffset.UTC)
-                .withDayOfMonth(1)
-                .truncatedTo(ChronoUnit.DAYS);
-        ZonedDateTime endMonth = endExclusive.minusMillis(1)
-                .atZone(ZoneOffset.UTC)
-                .withDayOfMonth(1)
-                .truncatedTo(ChronoUnit.DAYS);
-
-        List<AdminRevenueChartPointResponse> points = new java.util.ArrayList<>();
-        while (!cursor.isAfter(endMonth)) {
-            Instant periodStart = normalizeToUtcMonthStart(cursor.toInstant());
-            BigDecimal revenue = dbRevenueByMonth.getOrDefault(periodStart, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-            points.add(new AdminRevenueChartPointResponse(periodStart, revenue));
-            cursor = cursor.plusMonths(1);
+        ZonedDateTime cursor = start.atZone(ZoneOffset.UTC);
+        if (byYear) {
+            cursor = cursor.withDayOfYear(1).truncatedTo(ChronoUnit.DAYS);
+        } else {
+            cursor = cursor.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
         }
 
-        return responseEntity(true, "Revenue chart loaded", HttpStatus.OK, points);
+        ZonedDateTime endPeriod = endExclusive.minusMillis(1).atZone(ZoneOffset.UTC);
+        if (byYear) {
+            endPeriod = endPeriod.withDayOfYear(1).truncatedTo(ChronoUnit.DAYS);
+        } else {
+            endPeriod = endPeriod.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
+        }
+
+        List<AdminRevenueChartPointResponse> points = new ArrayList<>();
+        while (!cursor.isAfter(endPeriod)) {
+            Instant periodStart = byYear
+                    ? normalizeToUtcYearStart(cursor.toInstant())
+                    : normalizeToUtcMonthStart(cursor.toInstant());
+            PeriodTotals totals = dbByPeriod.getOrDefault(periodStart, PeriodTotals.ZERO);
+            BigDecimal revenue = scale2(totals.revenue());
+            BigDecimal cost = scale2(totals.cost());
+            BigDecimal profit = scale2(revenue.subtract(cost));
+            points.add(new AdminRevenueChartPointResponse(periodStart, revenue, cost, profit));
+            cursor = byYear ? cursor.plusYears(1) : cursor.plusMonths(1);
+        }
+        return points;
+    }
+
+    private static double profitMarginPercent(BigDecimal revenue, BigDecimal profit) {
+        if (revenue == null || revenue.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0.0;
+        }
+        return roundPercent(profit
+                .divide(revenue, 6, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .doubleValue());
     }
 
     private static double percentChange(long previous, long current) {
@@ -145,6 +194,20 @@ public class AdminDashboardController extends BaseResponse {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    private static BigDecimal scale2(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal b) {
+            return b;
+        }
+        return BigDecimal.valueOf(((Number) value).doubleValue());
+    }
+
     private static Instant toInstant(Object value) {
         if (value instanceof Instant instant) {
             return instant;
@@ -163,5 +226,16 @@ public class AdminDashboardController extends BaseResponse {
                 .withDayOfMonth(1)
                 .truncatedTo(ChronoUnit.DAYS)
                 .toInstant();
+    }
+
+    private static Instant normalizeToUtcYearStart(Instant instant) {
+        return instant.atZone(ZoneOffset.UTC)
+                .withDayOfYear(1)
+                .truncatedTo(ChronoUnit.DAYS)
+                .toInstant();
+    }
+
+    private record PeriodTotals(BigDecimal revenue, BigDecimal cost) {
+        static final PeriodTotals ZERO = new PeriodTotals(BigDecimal.ZERO, BigDecimal.ZERO);
     }
 }

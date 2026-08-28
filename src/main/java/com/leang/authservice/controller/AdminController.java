@@ -196,6 +196,7 @@ public class AdminController extends BaseResponse {
                 .name(product.name())
                 .description(product.description())
                 .price(product.price())
+                .costPrice(product.costPrice() != null ? product.costPrice() : BigDecimal.ZERO)
                 .stockQuantity(product.stockQuantity())
                 .imageUrl(product.imageUrl())
                 .imageUrl2(product.imageUrl2())
@@ -214,6 +215,7 @@ public class AdminController extends BaseResponse {
         existing.setName(payload.name());
         existing.setDescription(payload.description());
         existing.setPrice(payload.price());
+        existing.setCostPrice(payload.costPrice() != null ? payload.costPrice() : BigDecimal.ZERO);
         existing.setStockQuantity(payload.stockQuantity());
         existing.setImageUrl(payload.imageUrl());
         existing.setImageUrl2(payload.imageUrl2());
@@ -301,7 +303,8 @@ public class AdminController extends BaseResponse {
                 reviewCount,
                 product.getCategory() == null ? null : product.getCategory().getCategoryName(),
                 product.getDescription(),
-                null
+                null,
+                product.getCostPrice()
         );
     }
 

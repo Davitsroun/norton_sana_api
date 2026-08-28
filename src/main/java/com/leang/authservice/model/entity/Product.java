@@ -41,6 +41,9 @@ public class Product {
 
     private BigDecimal price;
 
+    /** Supplier / COGS per unit (admin only; not exposed on public catalog). */
+    private BigDecimal costPrice;
+
     private Integer stockQuantity;
 
     private String imageUrl;

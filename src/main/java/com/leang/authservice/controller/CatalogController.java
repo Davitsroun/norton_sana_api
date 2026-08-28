@@ -122,6 +122,7 @@ public class CatalogController extends BaseResponse {
                 reviewCount,
                 product.getCategory() == null ? null : slugify(product.getCategory().getCategoryName()),
                 product.getDescription(),
+                null,
                 null
         );
     }

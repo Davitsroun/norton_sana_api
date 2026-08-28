@@ -17,6 +17,7 @@ import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.CurrentUserService;
 import com.leang.authservice.service.OrderService;
 import com.leang.authservice.util.OrderStatuses;
+import com.leang.authservice.util.ProductCostHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -85,6 +86,7 @@ public class UserOrderController extends BaseResponse {
                     .product(product)
                     .quantity(item.quantity())
                     .price(lineTotal)
+                    .unitCost(ProductCostHelper.unitCost(product))
                     .build();
             orderItemRepository.save(orderItem);
         }

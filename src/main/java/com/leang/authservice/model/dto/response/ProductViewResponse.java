@@ -18,6 +18,7 @@ public record ProductViewResponse(
         Integer reviews,
         String category,
         String description,
-        String badge
+        String badge,
+        BigDecimal costPrice
 ) {
 }

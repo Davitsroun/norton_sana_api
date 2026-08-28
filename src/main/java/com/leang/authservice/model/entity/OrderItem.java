@@ -36,6 +36,10 @@ public class OrderItem {
 
     private Integer quantity;
 
+    /** Line total (unit selling price × quantity at time of sale). */
     private BigDecimal price;
+
+    /** Snapshot of product costPrice per unit when the line was added. */
+    private BigDecimal unitCost;
 }
 
