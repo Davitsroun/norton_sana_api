@@ -302,8 +302,64 @@ Swagger: `http://localhost:8082/swagger-ui.html`
 |------|-------|
 | Dashboard | `GET /api/v1/admin/dashboard/summary` (revenue, cost, profit, margin), `…/revenue-chart` & `…/profit-chart` (`groupBy=month\|year`), `…/orders/recent` |
 | Orders | `GET /api/v1/admin/orders`, `GET /api/v1/admin/orders/{id}` (includes `items[]`), `PATCH /api/v1/admin/orders/{id}/status` |
-| Users | `GET /api/v1/admin/users` |
-| Products | CRUD `/api/v1/admin/products` — includes `costPrice` (COGS per unit) |
+| Users | `POST/GET/PATCH /api/v1/admin/users` (Keycloak staff management — admin only) |
+| Products | CRUD `/api/v1/admin/products` (GET list/detail: **admin + cashier**, includes `stockQuantity`; write: admin only) |
+
+---
+
+## 9. RBAC — admin | cashier | user
+
+| Role | Backend access |
+|------|----------------|
+| `admin` | Full `/api/v1/admin/**`, user management, dashboard, product CRUD |
+| `cashier` | `/api/v1/cashier/**`, `/api/v1/admin/orders/**` (list/detail/status), cart + payments (**CASH** allowed) |
+| `user` | Storefront APIs; **cannot** use `paymentMethod: CASH` |
+
+### Admin user management (`ROLE_admin`)
+
+`POST /api/v1/admin/users` — create cashier only:
+
+```json
+{
+  "username": "counter1",
+  "email": "counter1@shop.test",
+  "firstName": "Counter",
+  "lastName": "Staff",
+  "password": "TempP@ss1",
+  "role": "cashier",
+  "enabled": true,
+  "temporaryPassword": true
+}
+```
+
+`GET /api/v1/admin/users?page=&size=&role=cashier|user|admin&search=`
+
+`PATCH /api/v1/admin/users/{keycloakId}` — `{ "enabled": false }` or `{ "temporaryPassword": "NewP@ss1", "temporaryPasswordFlag": true }`
+
+### Cashier POS (`ROLE_cashier` or `ROLE_admin`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/cashier/stock?page=&size=&name=` | Read-only stock (qty, low-stock flag) |
+| `POST` | `/api/v1/cashier/checkout` | Walk-in customer details on open cart |
+| `GET` | `/api/v1/cashier/orders/today` | Today's orders for counter |
+
+Checkout body:
+
+```json
+{
+  "customerName": "Walk-in Customer",
+  "contactNumber": "+855…",
+  "fulfillmentMethod": "pickup",
+  "paymentMethod": "CASH"
+}
+```
+
+Then `POST /api/v1/payments` with `paymentMethod: "CASH"`, `paymentStatus: "PAID"` (staff JWT required).
+
+Cashier status updates: `PATCH /api/v1/admin/orders/{id}/status` — limited to `processing`, `paid`, `completed`, `shipped`, `ready`, `ready_for_pickup`, `dispatched`.
+
+Keycloak setup: see [docs/keycloak-rbac-setup.md](keycloak-rbac-setup.md).
 
 ### Admin product cost & profit
 

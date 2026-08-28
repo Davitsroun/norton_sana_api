@@ -123,4 +123,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             ORDER BY month_start
             """, nativeQuery = true)
     List<Object[]> revenueByMonth(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.createdAt >= :since
+            ORDER BY o.createdAt DESC
+            """)
+    List<Order> findOrdersCreatedSince(@Param("since") Instant since);
 }

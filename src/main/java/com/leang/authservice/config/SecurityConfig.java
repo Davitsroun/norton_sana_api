@@ -57,6 +57,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/orders").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders/guest-checkout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/orders/*").permitAll()
+                        // Admin-only management
+                        .requestMatchers("/api/v1/admin/dashboard/**").hasRole("admin")
+                        .requestMatchers("/api/v1/admin/statistics/**").hasRole("admin")
+                        .requestMatchers("/api/v1/admin/users/**").hasRole("admin")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/products/**").hasRole("admin")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/admin/products/**").hasRole("admin")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/admin/products/**").hasRole("admin")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/products/**").hasAnyRole("admin", "cashier")
+                        // Staff order fulfillment (admin + cashier)
+                        .requestMatchers("/api/v1/admin/orders/**").hasAnyRole("admin", "cashier")
+                        .requestMatchers("/api/v1/cashier/**").hasAnyRole("admin", "cashier")
+                        // Remaining admin routes
                         .requestMatchers("/api/v1/admin/**").hasRole("admin")
                         .anyRequest().authenticated()
                 )

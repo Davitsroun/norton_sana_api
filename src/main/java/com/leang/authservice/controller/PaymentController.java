@@ -1,5 +1,6 @@
 package com.leang.authservice.controller;
 
+import com.leang.authservice.exception.ForbiddenException;
 import com.leang.authservice.model.dto.request.PaymentCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
@@ -7,6 +8,7 @@ import com.leang.authservice.model.dto.response.BaseResponse;
 import com.leang.authservice.model.entity.Order;
 import com.leang.authservice.model.entity.Payment;
 import com.leang.authservice.repository.OrderRepository;
+import com.leang.authservice.service.CurrentUserService;
 import com.leang.authservice.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -27,10 +29,13 @@ public class PaymentController extends BaseResponse {
 
     private final PaymentService paymentService;
     private final OrderRepository orderRepository;
+    private final CurrentUserService currentUserService;
 
     @Operation(summary = "Create payment")
     @PostMapping
     public ResponseEntity<ApiResponse<Payment>> create(@RequestBody PaymentCreateRequest dto) {
+        assertPaymentMethodAllowed(dto.getPaymentMethod());
+
         Order order = orderRepository.findById(dto.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
 
@@ -64,7 +69,17 @@ public class PaymentController extends BaseResponse {
     @Operation(summary = "Update payment")
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<Payment>> update(@PathVariable UUID id, @RequestBody Payment payment) {
+        assertPaymentMethodAllowed(payment.getPaymentMethod());
         return responseEntity(true, "Payment updated successfully.", HttpStatus.OK, paymentService.update(id, payment));
+    }
+
+    private void assertPaymentMethodAllowed(String paymentMethod) {
+        if (paymentMethod == null) {
+            return;
+        }
+        if ("CASH".equalsIgnoreCase(paymentMethod.trim()) && !currentUserService.isStaff()) {
+            throw new ForbiddenException("Cash payments are allowed for in-store staff only");
+        }
     }
 
     @Operation(summary = "Delete payment")

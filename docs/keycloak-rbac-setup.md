@@ -1,0 +1,10 @@
+-- Create Keycloak realm role `cashier` (run once in Keycloak Admin UI or via kcadm).
+-- Spring backend expects realm roles: admin, cashier, user (default on register).
+--
+-- Keycloak Admin UI:
+--   Realm rest-api → Realm roles → Create role → name: cashier
+--
+-- Service account (oauth-admin-client) needs:
+--   manage-users, view-users, manage-realm (assign roles)
+--
+-- Ensure access token includes realm roles (default realm_access claim).

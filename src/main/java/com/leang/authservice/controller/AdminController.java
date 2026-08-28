@@ -5,7 +5,6 @@ import com.leang.authservice.model.dto.request.ProductRequest;
 import com.leang.authservice.model.dto.response.AdminOrderDetailResponse;
 import com.leang.authservice.model.dto.response.AdminOrderListItemResponse;
 import com.leang.authservice.model.dto.response.AdminStatisticsResponse;
-import com.leang.authservice.model.dto.response.AdminUserListItemResponse;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.dto.response.BaseResponse;
@@ -13,6 +12,8 @@ import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
 import com.leang.authservice.model.dto.response.ProductViewResponse;
 import com.leang.authservice.service.AdminOrderMapper;
+import com.leang.authservice.service.CurrentUserService;
+import com.leang.authservice.util.CashierOrderStatusPolicy;
 import com.leang.authservice.model.entity.Brand;
 import com.leang.authservice.model.entity.Category;
 import com.leang.authservice.model.entity.Order;
@@ -62,6 +63,7 @@ public class AdminController extends BaseResponse {
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
     private final AdminOrderMapper adminOrderMapper;
+    private final CurrentUserService currentUserService;
 
     public AdminController(
             OrderRepository orderRepository,
@@ -69,7 +71,8 @@ public class AdminController extends BaseResponse {
             UserProfileRepository userProfileRepository,
             CategoryRepository categoryRepository,
             BrandRepository brandRepository,
-            AdminOrderMapper adminOrderMapper
+            AdminOrderMapper adminOrderMapper,
+            CurrentUserService currentUserService
     ) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
@@ -77,6 +80,7 @@ public class AdminController extends BaseResponse {
         this.categoryRepository = categoryRepository;
         this.brandRepository = brandRepository;
         this.adminOrderMapper = adminOrderMapper;
+        this.currentUserService = currentUserService;
     }
 
     @GetMapping("/orders/recent")
@@ -124,6 +128,9 @@ public class AdminController extends BaseResponse {
             @Valid @RequestBody AdminUpdateOrderStatusRequest request
     ) {
         Order order = orderRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        if (currentUserService.isCashier() && !currentUserService.isAdmin()) {
+            CashierOrderStatusPolicy.assertCashierMaySet(request.status());
+        }
         order.setStatus(request.status());
         if (request.trackingNumber() != null) {
             order.setTrackingNumber(request.trackingNumber());
@@ -131,38 +138,6 @@ public class AdminController extends BaseResponse {
         return responseEntity(true, "Order status updated successfully.", HttpStatus.OK, toOrderView(orderRepository.save(order)));
     }
 
-    @GetMapping("/users")
-    public ResponseEntity<ApiResponseWithPagination<AdminUserListItemResponse>> getUsers(
-            @RequestParam(name = "page", defaultValue = "0") int page,
-            @RequestParam(name = "size", defaultValue = "10") int size
-    ) {
-        Page<AdminUserListItemResponse> users = userProfileRepository.findAll(PageRequest.of(page, size))
-                .map(user -> {
-                    UUID keycloakUuid = UUID.fromString(user.getKeycloakId());
-                    long orderCount = orderRepository.countByUserId(keycloakUuid);
-                    String name = joinName(user.getFirstName(), user.getLastName());
-                    if (name.isBlank()) {
-                        name = user.getUsername();
-                    }
-                    return new AdminUserListItemResponse(
-                            user.getKeycloakId(),
-                            name,
-                            user.getEmail(),
-                            user.getCreatedAt(),
-                            orderCount,
-                            "ACTIVE",
-                            "CUSTOMER",
-                            user.getAvatarUrl()
-                    );
-                });
-        ApiResponseWithPagination<AdminUserListItemResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
-                users.getContent(),
-                page,
-                size,
-                (int) users.getTotalElements()
-        );
-        return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
     @GetMapping("/products")
     public ResponseEntity<ApiResponseWithPagination<ProductViewResponse>> getProducts(
 
@@ -188,6 +163,14 @@ public class AdminController extends BaseResponse {
                 (int) viewPage.getTotalElements()
         );
         return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/products/{id}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<ProductViewResponse>> getProductById(@PathVariable UUID id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Product not found"));
+        return responseEntity(true, "Product retrieved successfully.", HttpStatus.OK, toProductView(product));
     }
 
     @PostMapping("/products")
