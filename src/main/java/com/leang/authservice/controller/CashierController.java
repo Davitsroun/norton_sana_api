@@ -16,6 +16,7 @@ import com.leang.authservice.service.AdminOrderMapper;
 import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.CurrentUserService;
 import com.leang.authservice.service.OrderService;
+import com.leang.authservice.service.OrderViewMapper;
 import com.leang.authservice.util.OrderStatuses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -58,6 +59,7 @@ public class CashierController extends BaseResponse {
     private final CartOwnerResolver cartOwnerResolver;
     private final CurrentUserService currentUserService;
     private final AdminOrderMapper adminOrderMapper;
+    private final OrderViewMapper orderViewMapper;
 
     @GetMapping("/stock")
     @Transactional(readOnly = true)
@@ -140,17 +142,6 @@ public class CashierController extends BaseResponse {
     }
 
     private OrderViewResponse toOrderView(Order order) {
-        return new OrderViewResponse(
-                order.getOrderId(),
-                order.getCreatedAt(),
-                adminOrderMapper.toLineItems(order),
-                order.getTotalPrice(),
-                order.getStatus() == null ? null : order.getStatus().toLowerCase(Locale.ROOT),
-                order.getTrackingNumber(),
-                order.getPaymentMethod(),
-                order.getFulfillment(),
-                order.getCustomerName(),
-                order.getContactNumber()
-        );
+        return orderViewMapper.toView(order);
     }
 }

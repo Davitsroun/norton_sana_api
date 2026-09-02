@@ -11,6 +11,15 @@ public record PaymentProfileResponse(
         String fullName,
         String contactNumber,
         String deliveryAddress,
+        Double latitude,
+        Double longitude,
+        String province,
+        String district,
+        String commune,
+        String placeId,
+        String formattedAddress,
+        String deliveryInstructions,
+        String pickupNotes,
         Instant createdAt,
         Instant updatedAt
 ) {

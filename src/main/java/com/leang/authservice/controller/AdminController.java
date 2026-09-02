@@ -12,7 +12,11 @@ import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
 import com.leang.authservice.model.dto.response.ProductViewResponse;
 import com.leang.authservice.service.AdminOrderMapper;
+import com.leang.authservice.service.BatchInventoryService;
+import com.leang.authservice.service.CartLineMerger;
 import com.leang.authservice.service.CurrentUserService;
+import com.leang.authservice.service.OrderViewMapper;
+import com.leang.authservice.service.ProductViewMapper;
 import com.leang.authservice.util.CashierOrderStatusPolicy;
 import com.leang.authservice.model.entity.Brand;
 import com.leang.authservice.model.entity.Category;
@@ -49,7 +53,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -64,6 +67,10 @@ public class AdminController extends BaseResponse {
     private final BrandRepository brandRepository;
     private final AdminOrderMapper adminOrderMapper;
     private final CurrentUserService currentUserService;
+    private final OrderViewMapper orderViewMapper;
+    private final CartLineMerger cartLineMerger;
+    private final ProductViewMapper productViewMapper;
+    private final BatchInventoryService batchInventoryService;
 
     public AdminController(
             OrderRepository orderRepository,
@@ -72,7 +79,11 @@ public class AdminController extends BaseResponse {
             CategoryRepository categoryRepository,
             BrandRepository brandRepository,
             AdminOrderMapper adminOrderMapper,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            OrderViewMapper orderViewMapper,
+            CartLineMerger cartLineMerger,
+            ProductViewMapper productViewMapper,
+            BatchInventoryService batchInventoryService
     ) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
@@ -81,6 +92,10 @@ public class AdminController extends BaseResponse {
         this.brandRepository = brandRepository;
         this.adminOrderMapper = adminOrderMapper;
         this.currentUserService = currentUserService;
+        this.orderViewMapper = orderViewMapper;
+        this.cartLineMerger = cartLineMerger;
+        this.productViewMapper = productViewMapper;
+        this.batchInventoryService = batchInventoryService;
     }
 
     @GetMapping("/orders/recent")
@@ -96,6 +111,7 @@ public class AdminController extends BaseResponse {
     }
 
     @GetMapping("/orders")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponseWithPagination<AdminOrderListItemResponse>> getAllOrders(
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "10") int size,
@@ -115,11 +131,13 @@ public class AdminController extends BaseResponse {
     }
 
     @GetMapping("/orders/{id}")
-    @Transactional(readOnly = true)
+    @Transactional
     public ResponseEntity<ApiResponse<AdminOrderDetailResponse>> getOrderById(@PathVariable UUID id) {
-        Order order = orderRepository.findById(id)
+        Order order = orderRepository.findWithDetailsByOrderId(id)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
-        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, adminOrderMapper.toAdminDetail(order));
+        cartLineMerger.consolidateDuplicateProductsInOrder(order.getOrderId());
+        Order refreshed = orderRepository.findWithDetailsByOrderId(id).orElse(order);
+        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, adminOrderMapper.toAdminDetail(refreshed));
     }
 
     @PatchMapping("/orders/{id}/status")
@@ -155,7 +173,7 @@ public class AdminController extends BaseResponse {
                 maxPrice,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
         );
-        Page<ProductViewResponse> viewPage = products.map(this::toProductView);
+        Page<ProductViewResponse> viewPage = products.map(productViewMapper::toAdminView);
         ApiResponseWithPagination<ProductViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
                 viewPage.getContent(),
                 page,
@@ -170,17 +188,18 @@ public class AdminController extends BaseResponse {
     public ResponseEntity<ApiResponse<ProductViewResponse>> getProductById(@PathVariable UUID id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Product not found"));
-        return responseEntity(true, "Product retrieved successfully.", HttpStatus.OK, toProductView(product));
+        return responseEntity(true, "Product retrieved successfully.", HttpStatus.OK, productViewMapper.toAdminView(product));
     }
 
     @PostMapping("/products")
     public ResponseEntity<ApiResponse<ProductViewResponse>> createProduct(@Valid @RequestBody ProductRequest product) {
+        int initialStock = product.stockQuantity() != null ? product.stockQuantity() : 0;
         Product newProduct = Product.builder()
                 .name(product.name())
                 .description(product.description())
                 .price(product.price())
                 .costPrice(product.costPrice() != null ? product.costPrice() : BigDecimal.ZERO)
-                .stockQuantity(product.stockQuantity())
+                .stockQuantity(0)
                 .imageUrl(product.imageUrl())
                 .imageUrl2(product.imageUrl2())
                 .imageUrl3(product.imageUrl3())
@@ -189,7 +208,13 @@ public class AdminController extends BaseResponse {
                 .brand(resolveBrand(product.brandId()))
                 .createdAt(Instant.now())
                 .build();
-        return responseEntity(true, "Product created successfully.", HttpStatus.CREATED, toProductView(productRepository.save(newProduct)));
+        Product saved = productRepository.save(newProduct);
+        if (initialStock > 0) {
+            batchInventoryService.createLegacyBatch(saved, initialStock);
+        } else {
+            batchInventoryService.syncProductStockCache(saved.getProductId());
+        }
+        return responseEntity(true, "Product created successfully.", HttpStatus.CREATED, productViewMapper.toAdminView(saved));
     }
 
     @PutMapping("/products/{id}")
@@ -199,14 +224,15 @@ public class AdminController extends BaseResponse {
         existing.setDescription(payload.description());
         existing.setPrice(payload.price());
         existing.setCostPrice(payload.costPrice() != null ? payload.costPrice() : BigDecimal.ZERO);
-        existing.setStockQuantity(payload.stockQuantity());
         existing.setImageUrl(payload.imageUrl());
         existing.setImageUrl2(payload.imageUrl2());
         existing.setImageUrl3(payload.imageUrl3());
         existing.setImageUrl4(payload.imageUrl4());
         existing.setCategory(resolveCategory(payload.categoryId()));
         existing.setBrand(resolveBrand(payload.brandId()));
-        return responseEntity(true, "Product updated successfully.", HttpStatus.OK, toProductView(productRepository.save(existing)));
+        Product saved = productRepository.save(existing);
+        batchInventoryService.syncProductStockCache(saved.getProductId());
+        return responseEntity(true, "Product updated successfully.", HttpStatus.OK, productViewMapper.toAdminView(saved));
     }
 
     @GetMapping({"/statistics", "/statistics/overview"})
@@ -240,61 +266,7 @@ public class AdminController extends BaseResponse {
     }
 
     private OrderViewResponse toOrderView(Order order) {
-        List<OrderLineViewResponse> lines = order.getItems().stream()
-                .map(item -> new OrderLineViewResponse(
-                        item.getOrderItemId(),
-                        item.getProduct().getName(),
-                        item.getQuantity(),
-                        item.getPrice(),
-                        item.getProduct().getImageUrl()
-                ))
-                .toList();
-        return new OrderViewResponse(
-                order.getOrderId(),
-                order.getCreatedAt(),
-                lines,
-                order.getTotalPrice(),
-                order.getStatus() == null ? null : order.getStatus().toLowerCase(Locale.ROOT),
-                order.getTrackingNumber(),
-                order.getPaymentMethod(),
-                order.getFulfillment(),
-                order.getCustomerName(),
-                order.getContactNumber()
-        );
-    }
-
-    private ProductViewResponse toProductView(Product product) {
-        double avgRating = product.getReviews().stream()
-                .filter(r -> r.getRating() != null)
-                .mapToInt(r -> r.getRating())
-                .average()
-                .orElse(0.0);
-        int reviewCount = product.getReviews() == null ? 0 : product.getReviews().size();
-        return new ProductViewResponse(
-                product.getProductId(),
-                product.getBrand() == null ? null : product.getBrand().getBrandId(),
-                product.getName(),
-                product.getStockQuantity(),
-                product.getPrice(),
-                null,
-                product.getImageUrl(),
-                product.getImageUrl2(),
-                product.getImageUrl3(),
-                product.getImageUrl4(),
-                // imageUrls(product),
-                avgRating,
-                reviewCount,
-                product.getCategory() == null ? null : product.getCategory().getCategoryName(),
-                product.getDescription(),
-                null,
-                product.getCostPrice()
-        );
-    }
-
-    private List<String> imageUrls(Product product) {
-        return Stream.of(product.getImageUrl(), product.getImageUrl2(), product.getImageUrl3(), product.getImageUrl4())
-                .filter(url -> url != null && !url.isBlank())
-                .toList();
+        return orderViewMapper.toView(order);
     }
 
     private Category resolveCategory(UUID categoryId) {

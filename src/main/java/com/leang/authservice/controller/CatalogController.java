@@ -10,8 +10,10 @@ import com.leang.authservice.model.entity.Category;
 import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.CategoryRepository;
 import com.leang.authservice.repository.ProductRepository;
+import com.leang.authservice.service.ProductViewMapper;
 import com.leang.authservice.service.ReviewService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -37,6 +39,10 @@ public class CatalogController extends BaseResponse {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ReviewService reviewService;
+    private final ProductViewMapper productViewMapper;
+
+    @Value("${catalog.hide-out-of-stock:true}")
+    private boolean hideOutOfStock;
 
     @GetMapping("/products")
     public ResponseEntity<ApiResponseWithPagination<ProductViewResponse>> getProducts(
@@ -45,8 +51,10 @@ public class CatalogController extends BaseResponse {
             @RequestParam(name = "categoryId", required = false) UUID categoryId,
             @RequestParam(name = "minPrice", required = false) BigDecimal minPrice,
             @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice,
-            @RequestParam(name = "name", required = false) String name
+            @RequestParam(name = "name", required = false) String name,
+            @RequestParam(name = "inStockOnly", required = false) Boolean inStockOnly
     ) {
+        boolean filterInStock = inStockOnly != null ? inStockOnly : hideOutOfStock;
         String namePattern = null;
         if (name != null && !name.isBlank()) {
             namePattern = "%" + name.trim().toLowerCase(Locale.ROOT) + "%";
@@ -59,12 +67,15 @@ public class CatalogController extends BaseResponse {
                 maxPrice,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
         );
-        Page<ProductViewResponse> viewPage = products.map(this::toProductView);
+        List<ProductViewResponse> items = products.getContent().stream()
+                .map(productViewMapper::toPublicView)
+                .filter(p -> !filterInStock || (p.stockQuantity() != null && p.stockQuantity() > 0))
+                .toList();
         ApiResponseWithPagination<ProductViewResponse> response = ApiResponseWithPagination.itemsAndPaginationResponse(
-                viewPage.getContent(),
+                items,
                 page,
                 size,
-                (int) viewPage.getTotalElements()
+                (int) products.getTotalElements()
         );
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
@@ -73,6 +84,7 @@ public class CatalogController extends BaseResponse {
     public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductById(@PathVariable("id") UUID id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Product not found"));
+        ProductViewResponse view = productViewMapper.toPublicView(product);
         List<ProductViewResponse> relateProduct = Collections.emptyList();
         if (product.getCategory() != null) {
             relateProduct = productRepository
@@ -81,11 +93,12 @@ public class CatalogController extends BaseResponse {
                             id
                     )
                     .stream()
-                    .map(this::toProductView)
+                    .map(productViewMapper::toPublicView)
+                    .filter(p -> p.stockQuantity() != null && p.stockQuantity() > 0)
                     .toList();
         }
         ProductDetailResponse detail = new ProductDetailResponse(
-                toProductView(product),
+                view,
                 relateProduct,
                 reviewService.listRecentReviewsForProduct(id, 100)
         );
@@ -100,43 +113,11 @@ public class CatalogController extends BaseResponse {
         return responseEntity(true, "Categories retrieved successfully.", HttpStatus.OK, categories);
     }
 
-    private ProductViewResponse toProductView(Product product) {
-        double avgRating = product.getReviews().stream()
-                .filter(r -> r.getRating() != null)
-                .mapToInt(r -> r.getRating())
-                .average()
-                .orElse(0.0);
-        int reviewCount = product.getReviews() == null ? 0 : product.getReviews().size();
-        return new ProductViewResponse(
-                product.getProductId(),
-                product.getBrand() == null ? null : product.getBrand().getBrandId(),
-                product.getName(),
-                null,
-                product.getPrice(),
-                null,
-                product.getImageUrl(),
-                product.getImageUrl2(),
-                product.getImageUrl3(),
-                product.getImageUrl4(),
-                avgRating,
-                reviewCount,
-                product.getCategory() == null ? null : slugify(product.getCategory().getCategoryName()),
-                product.getDescription(),
-                null,
-                null
-        );
-    }
-
     private CategoryViewResponse toCategoryView(Category category) {
         return new CategoryViewResponse(
                 category.getCategoryId(),
-                slugify(category.getCategoryName()),
+                productViewMapper.slugify(category.getCategoryName()),
                 category.getCategoryName()
         );
-    }
-
-    private String slugify(String value) {
-        if (value == null) return null;
-        return value.trim().toLowerCase(Locale.ROOT).replace(" ", "-");
     }
 }

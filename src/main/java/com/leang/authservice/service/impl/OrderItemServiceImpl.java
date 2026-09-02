@@ -11,6 +11,9 @@ import com.leang.authservice.model.entity.OrderItem;
 import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
+import com.leang.authservice.service.BatchInventoryService;
+import com.leang.authservice.service.CartLineMerger;
+import com.leang.authservice.service.CartMergeService;
 import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.OrderItemService;
 import com.leang.authservice.service.OrderService;
@@ -27,6 +30,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -39,79 +43,92 @@ public class OrderItemServiceImpl implements OrderItemService {
     private final OrderRepository orderRepository;
     private final ProductService productService;
     private final CartOwnerResolver cartOwnerResolver;
+    private final CartMergeService cartMergeService;
+    private final CartLineMerger cartLineMerger;
+    private final BatchInventoryService batchInventoryService;
 
     @Override
     public OrderItem create(OrderItemCreateRequest dto) {
-        CartOwner owner = requireOwner();
-        Order order = orderService.findOrCreatePendingCart(owner);
-
-        Product product = productService.getById(dto.getProductId());
-        if (product.getStockQuantity() < dto.getQuantity()) {
-            throw new BadRequestException("Product have lest stock or out of stock");
+        if (dto.getProductId() == null) {
+            throw new BadRequestException("productId is required");
+        }
+        if (dto.getQuantity() == null || dto.getQuantity() < 1) {
+            throw new BadRequestException("quantity must be at least 1");
         }
 
-        product.setStockQuantity(product.getStockQuantity() - dto.getQuantity());
-        productService.update(product.getProductId(), product);
+        CartOwner owner = requireOwner();
+        Order order = orderService.findOrCreatePendingCart(owner);
+        cartLineMerger.consolidateDuplicateProductsInOrder(order.getOrderId());
 
-        BigDecimal price = product.getPrice().multiply(BigDecimal.valueOf(dto.getQuantity()));
+        Product product = productService.getById(dto.getProductId());
+        int addQty = dto.getQuantity();
+        assertSellable(product.getProductId(), addQty);
+
+        List<OrderItem> existingLines = orderItemRepository
+                .findAllByOrder_OrderIdAndProduct_ProductIdOrderByOrderItemIdAsc(order.getOrderId(), dto.getProductId());
+
+        if (!existingLines.isEmpty()) {
+            OrderItem existing = existingLines.get(0);
+            int newQty = existing.getQuantity() + addQty;
+            existing.setQuantity(newQty);
+            existing.setPrice(product.getPrice().multiply(BigDecimal.valueOf(newQty)));
+            OrderItem saved = orderItemRepository.save(existing);
+            batchInventoryService.deductFefo(product.getProductId(), addQty, saved);
+            order.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(order.getOrderId()));
+            orderRepository.save(order);
+            return saved;
+        }
 
         OrderItem orderItem = OrderItem.builder()
                 .order(order)
                 .product(product)
-                .quantity(dto.getQuantity())
-                .price(price)
+                .quantity(addQty)
+                .price(product.getPrice().multiply(BigDecimal.valueOf(addQty)))
                 .unitCost(ProductCostHelper.unitCost(product))
                 .build();
         OrderItem item = orderItemRepository.save(orderItem);
+        batchInventoryService.deductFefo(product.getProductId(), addQty, item);
         order.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(order.getOrderId()));
         orderRepository.save(order);
-
         return item;
     }
 
     @Override
     public OrderItem update(UUID id, OrderItem orderItem) {
         OrderItem existing = requireOwnedOrderItem(id);
-
         Product product = productService.getById(existing.getProduct().getProductId());
 
         int oldQty = existing.getQuantity();
         int newQty = orderItem.getQuantity();
         int diff = newQty - oldQty;
 
-        if (diff > 0 && product.getStockQuantity() < diff) {
-            throw new BadRequestException("Product have lest stock or out of stock");
+        if (diff > 0) {
+            assertSellable(product.getProductId(), diff);
+            batchInventoryService.deductFefo(product.getProductId(), diff, existing);
+        } else if (diff < 0) {
+            batchInventoryService.restoreForOrderItem(id, -diff);
         }
-
-        product.setStockQuantity(product.getStockQuantity() - diff);
-        productService.update(product.getProductId(), product);
 
         existing.setQuantity(newQty);
         existing.setPrice(product.getPrice().multiply(BigDecimal.valueOf(newQty)));
-
         OrderItem saved = orderItemRepository.save(existing);
 
         Order order = existing.getOrder();
         order.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(order.getOrderId()));
         orderRepository.save(order);
-
         return saved;
     }
 
     @Override
     public void delete(UUID id) {
         OrderItem existing = requireOwnedOrderItem(id);
-
-        Product product = productService.getById(existing.getProduct().getProductId());
-        product.setStockQuantity(product.getStockQuantity() + existing.getQuantity());
-        productService.update(product.getProductId(), product);
+        batchInventoryService.restoreAllForOrderItem(id);
 
         UUID orderId = existing.getOrder().getOrderId();
         orderItemRepository.delete(existing);
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new NotFoundException("Order not found"));
-
         BigDecimal newTotal = orderItemRepository.getTotalPriceByOrderId(orderId);
         order.setTotalPrice(newTotal != null ? newTotal : BigDecimal.ZERO);
         orderRepository.save(order);
@@ -134,6 +151,12 @@ public class OrderItemServiceImpl implements OrderItemService {
         );
     }
 
+    private void assertSellable(UUID productId, int quantity) {
+        if (batchInventoryService.getSellableQuantity(productId) < quantity) {
+            throw new BadRequestException("Insufficient stock available");
+        }
+    }
+
     private CartOwner requireOwner() {
         ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attrs == null) {
@@ -144,6 +167,8 @@ public class OrderItemServiceImpl implements OrderItemService {
         if (response == null) {
             throw new BadRequestException("No HTTP response in context");
         }
+        cartOwnerResolver.currentUserId().ifPresent(userId ->
+                cartMergeService.mergeGuestCartIfPresent(userId, request, response));
         return cartOwnerResolver.resolve(request, response);
     }
 

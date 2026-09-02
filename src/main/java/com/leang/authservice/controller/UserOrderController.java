@@ -1,11 +1,12 @@
 package com.leang.authservice.controller;
 
+import com.leang.authservice.exception.BadRequestException;
 import com.leang.authservice.model.CartOwner;
 import com.leang.authservice.model.dto.request.CreateOrderRequest;
 import com.leang.authservice.model.dto.request.GuestCheckoutRequest;
+import com.leang.authservice.model.dto.request.OrderFulfillmentRequest;
 import com.leang.authservice.model.dto.response.ApiResponse;
 import com.leang.authservice.model.dto.response.BaseResponse;
-import com.leang.authservice.model.dto.response.OrderLineViewResponse;
 import com.leang.authservice.model.dto.response.OrderViewResponse;
 import com.leang.authservice.model.entity.Order;
 import com.leang.authservice.model.entity.OrderItem;
@@ -13,9 +14,14 @@ import com.leang.authservice.model.entity.Product;
 import com.leang.authservice.repository.OrderItemRepository;
 import com.leang.authservice.repository.OrderRepository;
 import com.leang.authservice.repository.ProductRepository;
+import com.leang.authservice.service.CartLineMerger;
+import com.leang.authservice.service.CartMergeService;
 import com.leang.authservice.service.CartOwnerResolver;
 import com.leang.authservice.service.CurrentUserService;
+import com.leang.authservice.service.OrderAbandonService;
+import com.leang.authservice.service.OrderFulfillmentService;
 import com.leang.authservice.service.OrderService;
+import com.leang.authservice.service.OrderViewMapper;
 import com.leang.authservice.util.OrderStatuses;
 import com.leang.authservice.util.ProductCostHelper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,7 +34,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -40,6 +48,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -54,6 +63,11 @@ public class UserOrderController extends BaseResponse {
     private final CurrentUserService currentUserService;
     private final CartOwnerResolver cartOwnerResolver;
     private final OrderService orderService;
+    private final OrderFulfillmentService orderFulfillmentService;
+    private final OrderViewMapper orderViewMapper;
+    private final CartMergeService cartMergeService;
+    private final OrderAbandonService orderAbandonService;
+    private final CartLineMerger cartLineMerger;
 
     @PostMapping
     @Transactional
@@ -93,20 +107,22 @@ public class UserOrderController extends BaseResponse {
 
         savedOrder.setTotalPrice(orderItemRepository.getTotalPriceByOrderId(savedOrder.getOrderId()));
         orderRepository.save(savedOrder);
-        return responseEntity(true, "Order created successfully.", HttpStatus.CREATED, toView(savedOrder));
+        return responseEntity(true, "Order created successfully.", HttpStatus.CREATED, orderViewMapper.toView(savedOrder));
     }
 
     @Operation(summary = "Active cart(s) for JWT user or guest session cookie")
     @GetMapping
-    @Transactional(readOnly = true)
+    @Transactional
     public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrders(
             HttpServletRequest request,
             HttpServletResponse response
     ) {
+        cartOwnerResolver.currentUserId().ifPresent(userId ->
+                cartMergeService.mergeGuestCartIfPresent(userId, request, response));
         CartOwner owner = cartOwnerResolver.resolve(request, response);
         List<OrderViewResponse> orders = orderService.findActiveCarts(owner)
                 .stream()
-                .map(this::toView)
+                .map(orderViewMapper::toView)
                 .toList();
         return responseEntity(true, "Active orders retrieved successfully.", HttpStatus.OK, orders);
     }
@@ -132,17 +148,21 @@ public class UserOrderController extends BaseResponse {
         order.setDeliveryAddress(body.deliveryAddress());
         order.setStatus(OrderStatuses.PROCESSING);
         orderRepository.save(order);
-        return responseEntity(true, "Guest checkout details saved.", HttpStatus.OK, toView(order));
+        return responseEntity(true, "Guest checkout details saved.", HttpStatus.OK, orderViewMapper.toView(order));
     }
 
     @GetMapping("/history")
-    @Transactional(readOnly = true)
+    @Transactional
     @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<ApiResponse<List<OrderViewResponse>>> getMyOrderHistory() {
         UUID userId = UUID.fromString(currentUserService.keycloakSub());
         List<OrderViewResponse> orders = orderRepository.findOrderHistoryForUser(userId)
                 .stream()
-                .map(this::toView)
+                .map(order -> {
+                    cartLineMerger.consolidateDuplicateProductsInOrder(order.getOrderId());
+                    return orderRepository.findWithDetailsByOrderId(order.getOrderId()).orElse(order);
+                })
+                .map(orderViewMapper::toView)
                 .toList();
         return responseEntity(true, "Order history retrieved successfully.", HttpStatus.OK, orders);
     }
@@ -163,30 +183,39 @@ public class UserOrderController extends BaseResponse {
             order = orderRepository.findByOrderIdAndSessionIdAndUserIdIsNull(id, owner.sessionId())
                     .orElseThrow(() -> new IllegalArgumentException("Order not found"));
         }
-        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, toView(order));
+        return responseEntity(true, "Order retrieved successfully.", HttpStatus.OK, orderViewMapper.toView(order));
     }
 
-    private OrderViewResponse toView(Order order) {
-        List<OrderLineViewResponse> lines = order.getItems().stream()
-                .map(item -> new OrderLineViewResponse(
-                        item.getOrderItemId(),
-                        item.getProduct().getName(),
-                        item.getQuantity(),
-                        item.getPrice(),
-                        item.getProduct().getImageUrl()
-                ))
-                .toList();
-        return new OrderViewResponse(
-                order.getOrderId(),
-                order.getCreatedAt(),
-                lines,
-                order.getTotalPrice(),
-                order.getStatus() == null ? null : order.getStatus().toLowerCase(),
-                order.getTrackingNumber(),
-                order.getPaymentMethod(),
-                order.getFulfillment(),
-                order.getCustomerName(),
-                order.getContactNumber()
-        );
+    @Operation(summary = "Set pickup or delivery fulfillment on own open order (before payment)")
+    @PatchMapping("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/fulfillment")
+    @Transactional
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<ApiResponse<OrderViewResponse>> updateFulfillment(
+            @PathVariable UUID id,
+            @Valid @RequestBody OrderFulfillmentRequest request
+    ) {
+        UUID userId = UUID.fromString(currentUserService.keycloakSub());
+        OrderViewResponse updated = orderFulfillmentService.updateFulfillment(id, userId, request);
+        return responseEntity(true, "Fulfillment details saved.", HttpStatus.OK, updated);
+    }
+
+    @Operation(summary = "Cancel an open cart order and restore product stock")
+    @DeleteMapping("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/abandon")
+    @Transactional
+    public ResponseEntity<ApiResponse<OrderViewResponse>> abandonOrder(
+            @PathVariable UUID id,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        OrderViewResponse abandoned;
+        Optional<UUID> userId = cartOwnerResolver.currentUserId();
+        if (userId.isPresent()) {
+            abandoned = orderAbandonService.abandonForUser(id, userId.get());
+        } else {
+            UUID sessionId = cartOwnerResolver.peekGuestSessionId(request)
+                    .orElseThrow(() -> new BadRequestException("Sign in or provide a guest session to abandon this order"));
+            abandoned = orderAbandonService.abandonForGuest(id, sessionId);
+        }
+        return responseEntity(true, "Order abandoned successfully.", HttpStatus.OK, abandoned);
     }
 }

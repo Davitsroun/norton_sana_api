@@ -35,6 +35,9 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleBadRequestException(BadRequestException e) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
         problemDetail.setProperty("timestamp", Instant.now());
+        if (e.hasFieldErrors()) {
+            problemDetail.setProperty("fieldErrors", e.getFieldErrors());
+        }
         return problemDetail;
     }
 

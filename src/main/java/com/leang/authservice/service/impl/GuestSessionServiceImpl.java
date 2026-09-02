@@ -51,16 +51,29 @@ public class GuestSessionServiceImpl implements GuestSessionService {
     @Override
     @Transactional(readOnly = true)
     public Optional<UUID> findValidSessionId(HttpServletRequest request) {
+        Optional<UUID> fromHeader = parseSessionId(request.getHeader(SESSION_HEADER));
+        if (fromHeader.isPresent()) {
+            return validateSession(fromHeader.get());
+        }
         String raw = readCookie(request);
         if (raw == null || raw.isBlank()) {
             return Optional.empty();
         }
-        UUID id;
+        return parseSessionId(raw).flatMap(this::validateSession);
+    }
+
+    private Optional<UUID> parseSessionId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
         try {
-            id = UUID.fromString(raw.trim());
+            return Optional.of(UUID.fromString(raw.trim()));
         } catch (IllegalArgumentException ex) {
             return Optional.empty();
         }
+    }
+
+    private Optional<UUID> validateSession(UUID id) {
         return guestSessionRepository.findById(id)
                 .filter(session -> session.getExpiresAt() != null && session.getExpiresAt().isAfter(Instant.now()))
                 .map(GuestSession::getId);

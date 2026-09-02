@@ -1,7 +1,5 @@
 package com.leang.authservice.service.impl;
 
-import com.leang.authservice.enums.DeliveryOption;
-import com.leang.authservice.exception.BadRequestException;
 import com.leang.authservice.exception.NotFoundException;
 import com.leang.authservice.model.dto.request.PaymentProfileRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
@@ -9,11 +7,16 @@ import com.leang.authservice.model.dto.response.PaymentProfileResponse;
 import com.leang.authservice.model.entity.PaymentProfile;
 import com.leang.authservice.repository.PaymentProfileRepository;
 import com.leang.authservice.service.CurrentUserService;
+import com.leang.authservice.service.FulfillmentApplier;
+import com.leang.authservice.service.OrderFulfillmentService;
 import com.leang.authservice.service.PaymentProfileService;
+import com.leang.authservice.service.SavedLocationFulfillmentResolver;
+import com.leang.authservice.util.FulfillmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -23,29 +26,34 @@ public class PaymentProfileServiceImpl implements PaymentProfileService {
 
     private final PaymentProfileRepository paymentProfileRepository;
     private final CurrentUserService currentUserService;
+    private final FulfillmentApplier fulfillmentApplier;
+    private final OrderFulfillmentService orderFulfillmentService;
+    private final SavedLocationFulfillmentResolver savedLocationFulfillmentResolver;
 
     @Override
+    @Transactional
     public PaymentProfileResponse create(PaymentProfileRequest request) {
-        validateRequest(request);
+        FulfillmentValidator.FulfillmentInput input = resolve(request);
+        FulfillmentValidator.validateAndThrow(input);
         PaymentProfile profile = PaymentProfile.builder()
                 .userId(currentUserId())
-                .deliveryOption(request.deliveryOption())
-                .fullName(request.fullName().trim())
-                .contactNumber(request.contactNumber().trim())
-                .deliveryAddress(normalizeAddress(request.deliveryAddress()))
                 .build();
-        return toResponse(paymentProfileRepository.save(profile));
+        fulfillmentApplier.applyToProfile(profile, input);
+        PaymentProfile saved = paymentProfileRepository.save(profile);
+        orderFulfillmentService.syncOpenOrderFromProfile(currentUserId(), input);
+        return toResponse(saved);
     }
 
     @Override
+    @Transactional
     public PaymentProfileResponse update(UUID id, PaymentProfileRequest request) {
-        validateRequest(request);
+        FulfillmentValidator.FulfillmentInput input = resolve(request);
+        FulfillmentValidator.validateAndThrow(input);
         PaymentProfile existing = findOwned(id);
-        existing.setDeliveryOption(request.deliveryOption());
-        existing.setFullName(request.fullName().trim());
-        existing.setContactNumber(request.contactNumber().trim());
-        existing.setDeliveryAddress(normalizeAddress(request.deliveryAddress()));
-        return toResponse(paymentProfileRepository.save(existing));
+        fulfillmentApplier.applyToProfile(existing, input);
+        PaymentProfile saved = paymentProfileRepository.save(existing);
+        orderFulfillmentService.syncOpenOrderFromProfile(currentUserId(), input);
+        return toResponse(saved);
     }
 
     @Override
@@ -68,6 +76,25 @@ public class PaymentProfileServiceImpl implements PaymentProfileService {
         paymentProfileRepository.delete(findOwned(id));
     }
 
+    private FulfillmentValidator.FulfillmentInput resolve(PaymentProfileRequest request) {
+        return savedLocationFulfillmentResolver.resolve(
+                request.deliveryOption(),
+                request.fullName(),
+                request.contactNumber(),
+                request.deliveryAddress(),
+                request.latitude(),
+                request.longitude(),
+                request.province(),
+                request.district(),
+                request.commune(),
+                request.placeId(),
+                request.formattedAddress(),
+                request.deliveryInstructions(),
+                request.pickupNotes(),
+                request.savedLocationId()
+        );
+    }
+
     private UUID currentUserId() {
         return UUID.fromString(currentUserService.keycloakSub());
     }
@@ -77,17 +104,6 @@ public class PaymentProfileServiceImpl implements PaymentProfileService {
                 .orElseThrow(() -> new NotFoundException("Payment profile not found"));
     }
 
-    private void validateRequest(PaymentProfileRequest request) {
-        if (request.deliveryOption() == DeliveryOption.DELIVERY &&
-                (request.deliveryAddress() == null || request.deliveryAddress().isBlank())) {
-            throw new BadRequestException("deliveryAddress is required for DELIVERY option");
-        }
-    }
-
-    private String normalizeAddress(String address) {
-        return address == null || address.isBlank() ? null : address.trim();
-    }
-
     private PaymentProfileResponse toResponse(PaymentProfile profile) {
         return new PaymentProfileResponse(
                 profile.getPaymentProfileId(),
@@ -95,6 +111,15 @@ public class PaymentProfileServiceImpl implements PaymentProfileService {
                 profile.getFullName(),
                 profile.getContactNumber(),
                 profile.getDeliveryAddress(),
+                profile.getLatitude(),
+                profile.getLongitude(),
+                profile.getProvince(),
+                profile.getDistrict(),
+                profile.getCommune(),
+                profile.getPlaceId(),
+                profile.getFormattedAddress(),
+                profile.getDeliveryInstructions(),
+                profile.getPickupNotes(),
                 profile.getCreatedAt(),
                 profile.getUpdatedAt()
         );

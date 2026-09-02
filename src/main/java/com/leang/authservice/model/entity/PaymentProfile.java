@@ -44,6 +44,16 @@ public class PaymentProfile {
 
     private String deliveryAddress;
 
+    private Double latitude;
+    private Double longitude;
+    private String province;
+    private String district;
+    private String commune;
+    private String placeId;
+    private String formattedAddress;
+    private String deliveryInstructions;
+    private String pickupNotes;
+
     @CreationTimestamp
     private Instant createdAt;
 

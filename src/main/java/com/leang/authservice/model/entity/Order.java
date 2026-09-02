@@ -61,6 +61,16 @@ public class Order {
     private String customerName;
     private String contactNumber;
 
+    private Double latitude;
+    private Double longitude;
+    private String province;
+    private String district;
+    private String commune;
+    private String placeId;
+    private String formattedAddress;
+    private String deliveryInstructions;
+    private String pickupNotes;
+
     private Instant createdAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)

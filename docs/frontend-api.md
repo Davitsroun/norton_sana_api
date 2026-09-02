@@ -93,6 +93,205 @@ Typical ecommerce identity before login: a **guest session cookie**, not a user 
 
 ---
 
+## Checkout fulfillment (before payment / QR)
+
+After login, the customer must choose **PICKUP** or **DELIVERY** and submit contact + location data **before** Bakong QR / payment.
+
+### Shared request body (`POST`/`PUT` `/api/v1/payment-profiles` or `PATCH` `/api/v1/orders/{orderId}/fulfillment`)
+
+```json
+{
+  "deliveryOption": "PICKUP",
+  "fullName": "Sokha Chan",
+  "contactNumber": "+85512345678",
+  "deliveryAddress": null,
+  "latitude": null,
+  "longitude": null,
+  "province": null,
+  "district": null,
+  "commune": null,
+  "placeId": null,
+  "formattedAddress": null,
+  "deliveryInstructions": null,
+  "pickupNotes": "Collect after 5pm"
+}
+```
+
+**Delivery example (Phnom Penh):**
+
+```json
+{
+  "deliveryOption": "DELIVERY",
+  "fullName": "Sokha Chan",
+  "contactNumber": "012345678",
+  "deliveryAddress": "Near Central Market gate 2",
+  "latitude": 11.5564,
+  "longitude": 104.9282,
+  "province": "Phnom Penh",
+  "district": "Daun Penh",
+  "commune": null,
+  "placeId": "ChIJ…",
+  "formattedAddress": "Phnom Penh, Cambodia",
+  "deliveryInstructions": "Call on arrival",
+  "pickupNotes": null
+}
+```
+
+`PATCH /fulfillment` also accepts `"fulfillmentMethod": "PICKUP"` as an alias for `deliveryOption`.
+
+### Validation rules
+
+| Rule | Detail |
+|------|--------|
+| PICKUP | `fullName` 2–100 chars, Cambodia phone, `latitude`/`longitude` must be null |
+| DELIVERY | Same contact rules + `latitude`/`longitude` required inside Cambodia (~lat 10–15, lng 102–108) |
+| Order PATCH | JWT user must own order; order status must be `pending` or `processing` |
+| Payment profile save | Also copies fulfillment onto the user's open pending cart order |
+
+### Error responses (400 / 409)
+
+ProblemDetail JSON includes `fieldErrors` when validation fails:
+
+```json
+{
+  "status": 400,
+  "detail": "Fulfillment validation failed",
+  "fieldErrors": {
+    "contactNumber": "Invalid Cambodia phone number",
+    "latitude": "latitude and longitude are required for DELIVERY"
+  }
+}
+```
+
+### Sample curl — pickup
+
+```bash
+curl -X POST http://localhost:8082/api/v1/payment-profiles \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deliveryOption":"PICKUP","fullName":"Sokha Chan","contactNumber":"012345678","pickupNotes":"After 5pm"}'
+```
+
+### Sample curl — delivery on order
+
+```bash
+curl -X PATCH "http://localhost:8082/api/v1/orders/$ORDER_ID/fulfillment" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deliveryOption":"DELIVERY","fullName":"Sokha Chan","contactNumber":"012345678","latitude":11.5564,"longitude":104.9282,"formattedAddress":"Phnom Penh, Cambodia","deliveryAddress":"Near Central Market"}'
+```
+
+Optional: pass `"savedLocationId": "<uuid>"` on payment-profile or fulfillment to copy lat/lng/address from a saved place (name/phone still required on the request; explicit fields override saved ones).
+
+---
+
+## Saved delivery locations (max 3)
+
+Authenticated customers can save up to **3** Cambodia pins for faster DELIVERY checkout. Guests cannot save (401). Pickup does not use this API.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/v1/delivery-locations` | JWT | List mine; default first |
+| `POST` | `/api/v1/delivery-locations` | JWT | Create; 4th → 400 |
+| `PUT` | `/api/v1/delivery-locations/{id}` | JWT | Update (owner only) |
+| `DELETE` | `/api/v1/delivery-locations/{id}` | JWT | Delete (owner only) |
+| `PATCH` | `/api/v1/delivery-locations/{id}/default` | JWT | Set default (clears others) |
+
+**Create body:**
+
+```json
+{
+  "label": "Home",
+  "deliveryAddress": "Near Central Market",
+  "formattedAddress": "Phnom Penh, Cambodia",
+  "latitude": 11.5564,
+  "longitude": 104.9282,
+  "province": "Phnom Penh",
+  "district": null,
+  "commune": null,
+  "placeId": null,
+  "deliveryInstructions": "Call when arriving",
+  "isDefault": true
+}
+```
+
+**Rules:** label 1–40 chars; lat/lng required inside Cambodia; max 3 per user; first location becomes default if none set.
+
+```bash
+curl -X POST http://localhost:8082/api/v1/delivery-locations \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"Home","latitude":11.5564,"longitude":104.9282,"formattedAddress":"Phnom Penh, Cambodia","isDefault":true}'
+```
+
+### Order / admin responses
+
+Customer `OrderViewResponse` and admin order detail/list now include:
+
+`fulfillment`, `customerName`, `contactNumber`, `deliveryAddress`, `latitude`, `longitude`, `province`, `district`, `commune`, `placeId`, `formattedAddress`, `deliveryInstructions`, `pickupNotes`.
+
+Line items include `productId`, `unitPrice`, and line `price` (total).
+
+---
+
+## Cart lifecycle & merge (Bug A / Bug B)
+
+### Open cart vs history
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/v1/orders` | **Active cart only** — `pending` or `processing` with line items |
+| `GET /api/v1/orders/history` | **Paid/completed** orders only |
+
+Orders stay linked to `userId` after logout. Re-login → `GET /orders` shows the same pending/processing cart.
+
+### Guest → user merge (Bug B)
+
+When the client sends **Bearer JWT** and a guest session via **cookie** `GUEST_SESSION_ID` **or** header **`X-Session-Id`**:
+
+1. Backend finds guest open order + user open order
+2. Merges lines (same `productId` → sum qty)
+3. Deletes empty guest order, clears guest cookie
+4. Auto-runs on `GET /orders`, `POST /order-items`, and `POST /cart/merge`
+
+Frontend should send `credentials: 'include'` and `X-Session-Id: {sessionId}` on authenticated cart calls until merge completes.
+
+### Multiple open orders
+
+If a user somehow has more than one `pending`/`processing` order, the backend consolidates them into one on the next `GET /orders` or cart write.
+
+### Abandon open order
+
+```bash
+curl -X DELETE "http://localhost:8082/api/v1/orders/$ORDER_ID/abandon" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Restores stock, sets status `cancelled`. Only `pending`/`processing`.
+
+### Duplicate line items (same product)
+
+`POST /order-items` **upserts** on the open cart: if `productId` already exists on the order, quantity is increased and the existing row is updated — no second row is inserted.
+
+Legacy duplicate rows (from before this fix) are merged automatically when loading `GET /orders`, `GET /orders/history`, or `GET /admin/orders/{id}`.
+
+---
+
+## Admin order API (invoice / modal)
+
+`GET /api/v1/admin/orders` and `GET /api/v1/admin/orders/{id}` return:
+
+- `userId`, `customerName` (from checkout `fullName` on the order — **not** Keycloak username)
+- `customerEmail` (account email, secondary)
+- `contactNumber`, `fulfillment` (`PICKUP` | `DELIVERY`)
+- Full delivery fields: `deliveryAddress`, `formattedAddress`, `latitude`, `longitude`, `province`, `district`, `commune`, `deliveryInstructions`, `pickupNotes`
+- `paymentMethod`, `paymentStatus` (from linked payment row)
+- `items[]`: `{ id, productId, productName, quantity, price, unitPrice, image }`
+
+If checkout fulfillment was not submitted, `customerName` is `null` — frontend should show `"—"` on invoice.
+
+---
+
 ## 1. Customer endpoints
 
 | Method | Path | Used from (UI / action) | Auth (backend) | Notes |
@@ -106,7 +305,9 @@ Typical ecommerce identity before login: a **guest session cookie**, not a user 
 | `POST` | `/api/v1/cart/merge` | After login | **JWT** | Merges guest cookie cart into user cart |
 | `GET` | `/api/v1/orders/history` | History `/history` | **Required** | Paid/completed; no pagination |
 | `GET` | `/api/v1/orders/{orderId}` | Order detail | **Public or JWT** | Owner = userId or sessionId |
-| `POST` | `/api/v1/order-items` | Shop + product detail “Add to cart” | **Public or JWT** | Creates/attaches to open cart order |
+| `PATCH` | `/api/v1/orders/{orderId}/fulfillment` | Checkout fulfillment step (before QR) | **JWT required** | Own order, pending/processing only |
+| `DELETE` | `/api/v1/orders/{orderId}/abandon` | Cancel open cart / restore stock | **JWT or guest session** | Sets status `cancelled` |
+| `POST` | `/api/v1/order-items` | Shop + product detail “Add to cart” | **Public or JWT** | Upserts: same `productId` on open order → increments qty (no duplicate rows) |
 | `GET` | `/api/v1/order-items?page=&size=` | `listOrderItemsAction` — no customer UI call | **Public or JWT** | |
 | `GET` | `/api/v1/order-items/{id}` | Unused in UI | **Public or JWT** | Owner-scoped |
 | `PUT` | `/api/v1/order-items/{id}` | Cart quantity sync | **Public or JWT** | |
@@ -117,9 +318,14 @@ Typical ecommerce identity before login: a **guest session cookie**, not a user 
 | `GET` | `/api/v1/favorite-brands?page=&size=` | Favorites `/favorites`, Nav, product detail | **Required** | Brand favorites (not product IDs) |
 | `POST` | `/api/v1/favorite-brands` body `{ brandId }` | Product detail heart toggle | **Required** | |
 | `DELETE` | `/api/v1/favorite-brands/{favoriteBrandId}` | Favorites + product detail | **Required** | |
-| `POST` | `/api/v1/payment-profiles` | Cart checkout (details step) | **Required** | |
-| `PUT` | `/api/v1/payment-profiles/{id}` | Cart checkout (update stored profile) | **Required** | |
+| `POST` | `/api/v1/payment-profiles` | Cart checkout (details step) | **Required** | Optional `savedLocationId` for DELIVERY |
+| `PUT` | `/api/v1/payment-profiles/{id}` | Cart checkout (update stored profile) | **Required** | Optional `savedLocationId` |
 | `DELETE` | `/api/v1/payment-profiles/{id}` | Action exists — no cart UI delete | **Required** | |
+| `GET` | `/api/v1/delivery-locations` | Checkout saved places | **Required** | Max 3 |
+| `POST` | `/api/v1/delivery-locations` | Save place for later | **Required** | 4th → 400 |
+| `PUT` | `/api/v1/delivery-locations/{id}` | Update saved place | **Required** | Owner only |
+| `DELETE` | `/api/v1/delivery-locations/{id}` | Remove saved place | **Required** | Owner only |
+| `PATCH` | `/api/v1/delivery-locations/{id}/default` | Set default place | **Required** | Clears other defaults |
 | `POST` | `/api/v1/payments` | Cart “I Have Paid” (pickup/Bakong) | **Required** | |
 | `PUT` | `/api/v1/payments/{id}` | `updatePaymentAction` — no customer UI | **Required** | |
 | `POST` | `/api/v1/bakong/generate-qr` | Cart KHQR via `useBakongKhqr` | **Public** | |
@@ -182,9 +388,11 @@ Cart UI (authenticated):
   Nav badge = API order qty only (not localStorage)
         │
         ▼
-Checkout details:
-  POST or PUT /payment-profiles
-  { deliveryOption: PICKUP|DELIVERY, fullName, contactNumber, deliveryAddress }
+Checkout fulfillment (before payment / QR):
+  POST or PUT /payment-profiles  (also syncs open pending order)
+  OR PATCH /orders/{orderId}/fulfillment
+  Pickup: fullName + contactNumber (+ optional pickupNotes)
+  Delivery: fullName + contactNumber + latitude/longitude in Cambodia (+ address fields)
   paymentProfileId cached in sessionStorage `norton:paymentProfileId:{userId}`
         │
    ┌────┴────┐
@@ -232,7 +440,8 @@ Also accepts `fulfillment` instead of `fulfillmentMethod`.
 | Step | Body |
 |------|------|
 | Order line | `{ "productId", "quantity" }` → `POST /order-items` |
-| Payment profile | `{ "deliveryOption", "fullName", "contactNumber", "deliveryAddress" }` |
+| Payment profile | See **Fulfillment** section below |
+| Order fulfillment | `PATCH /orders/{orderId}/fulfillment` — same body shape as payment profile |
 | Payment | `{ "orderId", "paymentMethod", "paymentStatus", "transactionId", "paidAt" }` |
 | Bakong generate | `{ "currency", "amount", "merchantName" }` |
 
@@ -360,6 +569,89 @@ Then `POST /api/v1/payments` with `paymentMethod: "CASH"`, `paymentStatus: "PAID
 Cashier status updates: `PATCH /api/v1/admin/orders/{id}/status` — limited to `processing`, `paid`, `completed`, `shipped`, `ready`, `ready_for_pickup`, `dispatched`.
 
 Keycloak setup: see [docs/keycloak-rbac-setup.md](keycloak-rbac-setup.md).
+
+### Product batches & expiry (FEFO inventory)
+
+Skincare stock is tracked in **batches** per product. Expired batches are excluded from customer `stockQuantity`. Sales deduct **FEFO** (earliest expiry first). Timezone: `Asia/Phnom_Penh`.
+
+**Status enum:** `ACTIVE` | `EXPIRED` | `DEPLETED` | `WRITTEN_OFF`
+
+| Field | Meaning |
+|-------|---------|
+| `initialQuantity` | Original received qty (set on create) |
+| `quantity` | Current remaining |
+| `soldQuantity` | **Computed** `max(0, initialQuantity - quantity)` — not stored |
+
+**Write-off:** sets `quantity = 0`, `status = WRITTEN_OFF`, stores `writeOffReason`.
+
+#### Product-scoped (keep for modal)
+
+| Method | Path | Role |
+|--------|------|------|
+| `GET` | `/api/v1/admin/products/{productId}/batches` | admin, cashier |
+| `POST` | `/api/v1/admin/products/{productId}/batches` | admin |
+| `PUT` | `/api/v1/admin/products/{productId}/batches/{batchId}` | admin |
+| `DELETE` | `/api/v1/admin/products/{productId}/batches/{batchId}` | admin |
+| `POST` | `/api/v1/admin/products/{productId}/batches/{batchId}/write-off` | admin |
+| `GET` | `/api/v1/admin/stock/alerts` | admin |
+
+#### Global Batches page (new)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/v1/admin/batches` | Paginated list + filters |
+| `GET` | `/api/v1/admin/batches/{batchId}` | Detail + product snapshot |
+| `POST` | `/api/v1/admin/batches` | Create (`productId` in body) |
+| `PUT` | `/api/v1/admin/batches/{batchId}` | Update |
+| `POST` | `/api/v1/admin/batches/{batchId}/write-off` | `{ "reason": "..." }` required |
+
+**List query params:** `page`, `size`, `search` (product name / batchCode), `productId`, `status` (`ACTIVE`\|`EXPIRED`\|`DEPLETED`\|`WRITTEN_OFF`\|`ALL`), `expiringWithinDays` (e.g. `30`), `sort` (`expiryDateAsc`\|`expiryDateDesc`\|`receivedDateDesc`\|`quantityAsc`).
+
+**List / detail item JSON:**
+
+```json
+{
+  "id": "batch-uuid",
+  "productId": "product-uuid",
+  "productName": "Vitamin C Serum",
+  "productImage": "https://.../image.jpg",
+  "productBrand": "The Ordinary",
+  "productCategory": "Serum",
+  "batchCode": "LOT-2026-A",
+  "expiryDate": "2026-06-01",
+  "receivedDate": "2026-01-10",
+  "initialQuantity": 100,
+  "quantity": 42,
+  "soldQuantity": 58,
+  "costPrice": 8.5,
+  "status": "ACTIVE",
+  "writeOffReason": null,
+  "createdAt": "2026-01-10T08:00:00Z",
+  "updatedAt": "2026-03-01T12:00:00Z"
+}
+```
+
+**Create (global):**
+
+```bash
+curl -X POST http://localhost:8082/api/v1/admin/batches \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"productId":"33333333-3333-3333-3333-333333333334","batchCode":"LOT-2026-A","expiryDate":"2026-12-31","receivedDate":"2026-03-01","quantity":100,"costPrice":8.5}'
+```
+
+**List:**
+
+```bash
+curl "http://localhost:8082/api/v1/admin/batches?page=0&size=20&status=ACTIVE&sort=expiryDateAsc" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+On create: `initialQuantity = quantity`; `status = ACTIVE` (or `EXPIRED` if `expiryDate < today` and `allowPastExpiry=true`).
+
+**Public catalog:** `stockQuantity` = sum of non-expired active batches only. Batches are **not** exposed to customers.
+
+**Migration:** `src/main/resources/db/migrate-product-batches.sql`
 
 ### Admin product cost & profit
 

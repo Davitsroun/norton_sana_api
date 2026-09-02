@@ -3,6 +3,7 @@ package com.leang.authservice.repository;
 import com.leang.authservice.model.entity.Order;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,7 +19,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("""
             SELECT o.orderId FROM Order o
             WHERE o.userId = :userId
-            AND LOWER(TRIM(o.status)) = 'pending'
+            AND LOWER(TRIM(o.status)) IN ('pending', 'processing')
             ORDER BY o.createdAt DESC
             """)
     List<UUID> findPendingOrderIdsByUserId(@Param("userId") UUID userId);
@@ -27,7 +28,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             SELECT o.orderId FROM Order o
             WHERE o.sessionId = :sessionId
             AND o.userId IS NULL
-            AND LOWER(TRIM(o.status)) = 'pending'
+            AND LOWER(TRIM(o.status)) IN ('pending', 'processing')
             ORDER BY o.createdAt DESC
             """)
     List<UUID> findPendingOrderIdsBySessionId(@Param("sessionId") UUID sessionId);
@@ -45,6 +46,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     Optional<Order> findByOrderIdAndSessionIdAndUserIdIsNull(UUID orderId, UUID sessionId);
 
     /** Unpaid / in-progress orders (cart + checkout before payment). */
+    @EntityGraph(attributePaths = {"items", "items.product", "payment"})
     @Query("""
             SELECT o FROM Order o
             WHERE o.userId = :userId
@@ -53,6 +55,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             """)
     List<Order> findActiveOrdersForUser(@Param("userId") UUID userId);
 
+    @EntityGraph(attributePaths = {"items", "items.product", "payment"})
     @Query("""
             SELECT o FROM Order o
             WHERE o.sessionId = :sessionId
@@ -63,6 +66,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findActiveOrdersForSession(@Param("sessionId") UUID sessionId);
 
     /** Paid or completed orders for purchase history. */
+    @EntityGraph(attributePaths = {"items", "items.product", "payment"})
     @Query("""
             SELECT o FROM Order o
             WHERE o.userId = :userId
@@ -86,12 +90,16 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             """)
     BigDecimal sumRevenueBetween(@Param("from") Instant from, @Param("to") Instant to);
 
+    @EntityGraph(attributePaths = {"payment", "items", "items.product"})
     @Query("""
             SELECT o FROM Order o
             WHERE (:status IS NULL OR LOWER(o.status) = :status)
             ORDER BY o.createdAt DESC
             """)
     Page<Order> findAdminOrders(@Param("status") String status, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"payment", "items", "items.product"})
+    Optional<Order> findWithDetailsByOrderId(UUID orderId);
 
     @Query("""
             SELECT COUNT(o) FROM Order o

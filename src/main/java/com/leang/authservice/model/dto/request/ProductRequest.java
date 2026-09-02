@@ -20,7 +20,7 @@ public record ProductRequest(
         @PositiveOrZero
         BigDecimal costPrice,
 
-        @NotNull
+        /** Optional initial stock — creates a LEGACY batch when &gt; 0. Use batch API after create. */
         @PositiveOrZero
         Integer stockQuantity,
 

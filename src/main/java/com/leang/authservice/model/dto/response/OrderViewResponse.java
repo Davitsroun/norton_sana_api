@@ -15,6 +15,16 @@ public record OrderViewResponse(
         String paymentMethod,
         String fulfillment,
         String customerName,
-        String contactNumber
+        String contactNumber,
+        String deliveryAddress,
+        Double latitude,
+        Double longitude,
+        String province,
+        String district,
+        String commune,
+        String placeId,
+        String formattedAddress,
+        String deliveryInstructions,
+        String pickupNotes
 ) {
 }

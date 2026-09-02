@@ -54,3 +54,8 @@ bakong:
 onesignal:
   app-id: ${ONESIGNAL_APP_ID:}
   rest-api-key: ${ONESIGNAL_REST_API_KEY:}
+
+catalog:
+  hide-out-of-stock: true
+  expiring-soon-days: 30
+  low-stock-threshold: 5

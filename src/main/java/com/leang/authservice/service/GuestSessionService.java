@@ -9,6 +9,7 @@ import java.util.UUID;
 public interface GuestSessionService {
 
     String COOKIE_NAME = "GUEST_SESSION_ID";
+    String SESSION_HEADER = "X-Session-Id";
     int COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
     /**

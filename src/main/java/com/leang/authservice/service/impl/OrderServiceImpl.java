@@ -7,6 +7,7 @@ import com.leang.authservice.model.dto.request.OrderCreateRequest;
 import com.leang.authservice.model.dto.response.ApiResponseWithPagination;
 import com.leang.authservice.model.entity.Order;
 import com.leang.authservice.repository.OrderRepository;
+import com.leang.authservice.service.CartLineMerger;
 import com.leang.authservice.service.OrderService;
 import com.leang.authservice.util.OrderStatuses;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import java.util.UUID;
 public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
+    private final CartLineMerger cartLineMerger;
 
     @Override
     public Order create(OrderCreateRequest dto) {
@@ -118,22 +120,36 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public Order findOrCreatePendingCart(CartOwner owner) {
-        UUID orderId = findPendingCartId(owner);
-        if (orderId == null) {
+        List<Order> active = findActiveCarts(owner);
+        if (active.isEmpty()) {
             return createPendingCart(owner);
         }
-        return getById(orderId);
+        return active.get(0);
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Order> findActiveCarts(CartOwner owner) {
+        List<Order> active;
         if (owner.isRegistered()) {
-            return orderRepository.findActiveOrdersForUser(owner.userId());
+            active = orderRepository.findActiveOrdersForUser(owner.userId());
+        } else if (owner.isGuest()) {
+            active = orderRepository.findActiveOrdersForSession(owner.sessionId());
+        } else {
+            return List.of();
         }
-        if (owner.isGuest()) {
-            return orderRepository.findActiveOrdersForSession(owner.sessionId());
+        if (active.size() <= 1) {
+            active.forEach(o -> cartLineMerger.consolidateDuplicateProductsInOrder(o.getOrderId()));
+            return reloadWithDetails(active);
         }
-        return List.of();
+        Order consolidated = cartLineMerger.consolidateActiveOrders(active);
+        cartLineMerger.consolidateDuplicateProductsInOrder(consolidated.getOrderId());
+        return reloadWithDetails(List.of(consolidated));
+    }
+
+    private List<Order> reloadWithDetails(List<Order> orders) {
+        return orders.stream()
+                .map(o -> orderRepository.findWithDetailsByOrderId(o.getOrderId()).orElse(o))
+                .toList();
     }
 }
